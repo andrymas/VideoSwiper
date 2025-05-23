@@ -1,16 +1,38 @@
-# videoswiper
+# 🎞️ VideoSwiper
 
-A new Flutter project.
+**VideoSwiper** is a Flutter desktop application that helps you preview and review video files using automatically generated thumbnail collages. Ideal for quickly scanning through large video folders and deciding which files to keep or delete.
+![Video](assets/video.gif)
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 📦 Download
 
-A few resources to get you started if this is your first Flutter project:
+You can download the latest Windows build here:
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+👉 **[Download VideoSwiper.exe](https://github.com/andrymas/videoswiper/releases/latest/download/VideoSwiper.exe)**
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- No installation required.
+- Just download and run the `.exe` file.
+- Requires Python 3 with `opencv-python` and `Pillow` installed.
+
+---
+
+## ✨ Features
+
+- 📁 **Batch Folder Selection**: Pick an entire folder of videos (`.mp4`, `.avi`, `.mov`, `.mkv`).
+- 🖼️ **Thumbnail Collage Generation**: Extracts evenly spaced frames and arranges them into a grid using Python + OpenCV + Pillow.
+- ⚡ **Parallel Processing**: Up to N concurrent Python workers with real-time progress and memory usage display.
+- 🧹 **Easy Review UI**: Swipe through videos and choose to **keep** or **delete** each file.
+- 🎛️ **Configurable Parameters**: Adjust number of frames per collage, number of parallel jobs, and grid layout.
+- 💻 **Cross-Platform**: Flutter Desktop support for Windows (build), macOS, and Linux (source).
+
+---
+
+## 🧰 Requirements
+
+### Flutter
+
+- Flutter 3.7 or newer
+- Python 3.x
+- OpenCV and Pillow libraries:
+  `pip install opencv-python pillow`
