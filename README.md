@@ -1,7 +1,7 @@
 # 🎞️ VideoSwiper
 
 **VideoSwiper** is a Flutter desktop application that helps you preview and review video files using automatically generated thumbnail collages. Ideal for quickly scanning through large video folders and deciding which files to keep or delete.
-![Video](assets/video.gif)
+![Video](video.gif)
 
 ---
 
