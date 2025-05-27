@@ -19,12 +19,13 @@ You can download the latest Windows build here:
 
 ## ✨ Features
 
-- 📁 **Batch Folder Selection**: Pick an entire folder of videos (`.mp4`, `.avi`, `.mov`, `.mkv`).
+- 📁 **Batch Folder Selection**: Pick an entire folder of videos.
+- ⚙️ **Wide Extension Compatibility**: This software recognizes lots of video extensions (`'.mp4'`, `'.avi'`, `'.mov'`, `'.mkv'`, `'.m4v'`, `'.webm'`, `'.flv'`, `'.wmv'`, `'.3gp'`, `'.3g2'`, `'.mpeg'`, `'.mpg'`, `'.ts'`)
 - 🖼️ **Thumbnail Collage Generation**: Extracts evenly spaced frames and arranges them into a grid using Python + OpenCV + Pillow.
 - ⚡ **Parallel Processing**: Up to N concurrent Python workers with real-time progress and memory usage display.
 - 🧹 **Easy Review UI**: Swipe through videos and choose to **keep** or **delete** each file.
-- 🎛️ **Configurable Parameters**: Adjust number of frames per collage, number of parallel jobs, and grid layout.
-- 💻 **Cross-Platform**: Flutter Desktop support for Windows (build), macOS, and Linux (source).
+- 🗑️ **Trash Folder**: Don't want to lose your files forever? This software doesn't delete, it just creates a trash folder to keep everything organized.
+- 🎛️ **Configurable Parameters**: Adjust number of frames per collage and number of parallel jobs.
 
 ---
 
