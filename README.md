@@ -9,7 +9,7 @@
 
 You can download the latest Windows build here:
 
-👉 **[Download VideoSwiper.exe](https://github.com/andrymas/VideoSwiper/releases/download/Betas/VideoSwiper.0.1.0.zip)**
+👉 **[Download VideoSwiper.exe](https://github.com/andrymas/VideoSwiper/releases/download/v0.2.0/VideoSwiper0.2.0.zip)**
 
 - No installation required.
 - Just download and run the `.exe` file.
