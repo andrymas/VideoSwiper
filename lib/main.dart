@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:system_info/system_info.dart';
+import 'package:videoswiper/script.dart';
 
 void main() {
   runApp(const VideoSwiperApp());
 }
 
+//app creation class
 class VideoSwiperApp extends StatelessWidget {
   const VideoSwiperApp({super.key});
 
@@ -34,9 +36,11 @@ class VideoReviewPage extends StatefulWidget {
 }
 
 class _VideoReviewPageState extends State<VideoReviewPage> {
-  int generatedThumbnails = 0; // -> aggiornato ogni volta che finisci un collage
-  int currentVideoIndex = 0;   // -> aggiornato solo quando premi "Elimina" o "Mantieni"
+  late Directory trashLocation;
+  int generatedThumbnails = 0;
+  int currentVideoIndex = 0;
   late int totalJobs;
+  //init variables
   int framesNumber = 40;
   int maxJobs = 4;
   File? _scriptFile;
@@ -53,94 +57,30 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
   @override
   void initState() {
     super.initState();
-    _preparePythonScript();
+    //prepare the python file
+    preparePythonScript();
   }
 
-  Future<void> _preparePythonScript() async {
+
+  Future<void> preparePythonScript() async {
     final tempDir = await Directory.systemTemp.createTemp('video_swiper_script');
     final scriptPath = p.join(tempDir.path, 'collage_generator.py');
-  final pythonScript = '''
-import os
-import cv2
-from PIL import Image
-import math
-import sys
-
-framesNumber = int(sys.argv[2]) if len(sys.argv) > 2 else 40
-
-
-def estrai_frame_temporizzati(video_path, num_frame):
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"Errore nell'apertura del video: {video_path}")
-        return []
-
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    duration_seconds = total_frames / fps if fps > 0 else 0
-
-    if duration_seconds == 0:
-        print(f"Durata video non valida: {video_path}")
-        return []
-
-    step_seconds = duration_seconds / num_frame
-    frames = []
-
-    for i in range(num_frame):
-        timestamp = i * step_seconds
-        cap.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
-        ret, frame = cap.read()
-        if not ret:
-            continue
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img = Image.fromarray(frame_rgb)
-        frames.append(img)
-
-    cap.release()
-    return frames
-
-def crea_collage(frames, output_path, cols=8):
-    if not frames:
-        print(f"Nessun frame disponibile per creare il collage: {output_path}")
-        return
-
-    rows = math.ceil(len(frames) / cols)
-    thumb_size = (180, 320) if frames[0].height > frames[0].width else (320, 180)
-    collage_width = cols * thumb_size[0]
-    collage_height = rows * thumb_size[1]
-
-    collage = Image.new('RGB', (collage_width, collage_height), color=(0, 0, 0))
-
-    for index, frame in enumerate(frames):
-        frame = frame.resize(thumb_size)
-        x = (index % cols) * thumb_size[0]
-        y = (index // cols) * thumb_size[1]
-        collage.paste(frame, (x, y))
-
-    collage.save(output_path)
-    print(f"Collage salvato: {output_path}")
-
-if __name__ == "__main__":
-    video_path = sys.argv[1]
-    nome_base = os.path.splitext(os.path.basename(video_path))[0]
-    cartella = os.path.dirname(video_path)
-    output_collage = os.path.join(cartella, f"{nome_base}_collage.png")
-    frames = estrai_frame_temporizzati(video_path, num_frame=framesNumber)
-    crea_collage(frames, output_collage)
-''';
-
     final script = File(scriptPath);
+    //pythonScript is in script.dart
     await script.writeAsString(pythonScript);
     _scriptFile = script;
   }
-
 
   Future<void> pickFolderAndLoadVideos() async {
     String? folderPath = await FilePicker.platform.getDirectoryPath();
     if (folderPath == null) return;
 
-    // Prepara la lista di file
-    final videoExtensions = ['.mp4', '.avi', '.mov', '.mkv'];
+    //File list
+    trashLocation = await Directory('$folderPath/trash').create(recursive: false);
+    final videoExtensions = [
+      '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm',
+      '.flv', '.wmv', '.3gp', '.3g2', '.mpeg', '.mpg', '.ts'
+    ];
     final files = Directory(folderPath)
         .listSync()
         .whereType<File>()
@@ -148,7 +88,7 @@ if __name__ == "__main__":
         .toList()
       ..sort((a, b) => a.path.compareTo(b.path));
 
-    // Imposta i contatori
+    //Variable reset
     setState(() {
       selectedFolder = folderPath;
       videoFiles = files;
@@ -156,12 +96,12 @@ if __name__ == "__main__":
       totalJobs = files.length;
     });
 
-    // Variabili locali per dialog
+    //Local variable for dialog
     late StateSetter setStateDialog;
     Timer? ramTimer;
     final jobs = Queue<File>.from(videoFiles);
 
-    // Mostra il dialog con StatefulBuilder
+    //Show the dialog
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -170,9 +110,18 @@ if __name__ == "__main__":
           builder: (context, dialogSetState) {
             setStateDialog = dialogSetState;
 
-            // Lettura RAM (in GB)
-            final totalGB  = SysInfo.getTotalPhysicalMemory() / 1073741824;
-            final freeGB   = SysInfo.getFreePhysicalMemory()  / 1073741824;
+            //RAM (in GB)
+            final totalGB = SysInfo.getTotalPhysicalMemory() / 1073741824;
+            final freeGB = SysInfo.getFreePhysicalMemory() / 1073741824;
+            final usedGB = totalGB - freeGB;
+            final ramRatio = usedGB / totalGB;
+
+            Color getRamColor(double ratio) {
+              if (ratio < 0.5) return Colors.green;
+              if (ratio < 0.8) return Colors.orange;
+              return Colors.red;
+            }
+
 
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
@@ -186,11 +135,12 @@ if __name__ == "__main__":
                   const CircularProgressIndicator(),
                   const SizedBox(height: 20),
                   Text(
-                    "Elaborati $generatedThumbnails /$totalJobs video",
+                    "Elaborated $generatedThumbnails /$totalJobs videos",
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
+                      decoration: TextDecoration.none
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -204,55 +154,82 @@ if __name__ == "__main__":
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    "Memoria totale: ${totalGB.toStringAsFixed(2)} GB",
-                    style: const TextStyle(color: Colors.white),
+                    "RAM Usage",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      decoration: TextDecoration.none,
+                    ),
                   ),
-                  Text(
-                    "Memoria libera: ${freeGB.toStringAsFixed(2)} GB",
-                    style: const TextStyle(color: Colors.white),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Text(
+                        "${usedGB.toStringAsFixed(1)} GB",
+                        style: const TextStyle(color: Colors.white, decoration: TextDecoration.none),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            value: ramRatio,
+                            minHeight: 12,
+                            backgroundColor: Colors.grey[700],
+                            valueColor: AlwaysStoppedAnimation<Color>(getRamColor(ramRatio)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        "${totalGB.toStringAsFixed(1)} GB",
+                        style: const TextStyle(color: Colors.white, decoration: TextDecoration.none),
+                      ),
+                    ],
                   ),
                 ],
-              ),
+              )
             );
           },
         ),
       ),
     );
 
-    // Avvia il timer per aggiornare la RAM ogni secondo
-    ramTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setStateDialog(() {}); // Ricostruisce il dialog per leggere la RAM fresca
+    //Refreshes the ram monitor every second
+    ramTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      setStateDialog((){}); //Recreates the dialog to update the ram monitor
     });
 
-    // Coda e worker
+    //Thread worker
     Future<void> worker() async {
       while (jobs.isNotEmpty) {
         final file = jobs.removeFirst();
         await _generateCollage(file);
 
         generatedThumbnails++;
-        // aggiorna il dialog
-        setStateDialog(() {});
+        // Update the dialog every new thumbnail
+        setStateDialog((){});
       }
     }
 
 
-    // 4) Lancio N worker in parallelo
+    //Creates N paralel workers
     final workers = List.generate(maxJobs, (_) => worker());
     await Future.wait(workers);
 
-    // stoppa il timer
-    ramTimer?.cancel();
-    // chiudi il dialog
+    //Stops the timer
+    ramTimer.cancel();
+    //Closes the dialog
     Navigator.of(context).pop();
 
-    // riparti dall’inizio per la UI
+    //Gets the first generated video
     setState(() {
       currentVideoIndex = 0;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Elaborazione completata!'))
+      const SnackBar(content: Text('Elaboration complete!'))
     );
 
   }
@@ -261,10 +238,11 @@ if __name__ == "__main__":
 
   Future<void> _generateCollage(File videoFile) async {
     if (_scriptFile == null) {
-      print("❗ Script non pronto");
+      print("❗ Script not ready");
       return;
     }
 
+    //runs the python script (should work only on windows)
     final result = await Process.run(
       'python3',
       [_scriptFile!.path, videoFile.path, framesNumber.toString()],
@@ -272,49 +250,68 @@ if __name__ == "__main__":
     );
 
     if (result.exitCode != 0) {
-      print("Errore collage ${videoFile.path}: ${result.stderr}");
+      print("Collage error ${videoFile.path}: ${result.stderr}");
     } else {
-      print("✅ Collage generato: ${videoFile.path}");
+      print("✅ Collage generated: ${videoFile.path}");
     }
-
-    setState(() {
-      // Aggiungi un controllo per non superare la lunghezza della lista
-      if (generatedThumbnails  < videoFiles.length - 1) {
-        generatedThumbnails ++;
-      } else {
-        // Se siamo all'ultimo video, non incrementiamo
-        generatedThumbnails  = videoFiles.length - 1;
-      }
-    });
   }
 
-
+  //simple function to get the collage path of a video
   String _getCollagePath(File videoFile) {
     final base = p.basenameWithoutExtension(videoFile.path);
     final outputDir = p.dirname(videoFile.path);
     return p.join(outputDir, '${base}_collage.png');
   }
 
-  void deleteCurrentVideo() {
-    // elimina il video corrente dalla lista
-    videoFiles.removeAt(currentVideoIndex );
+  //creates the new file path in the trash (it seems the only way to move a file in dart)
+  String uniqueTrashPath(String fileName) {
+    final base = p.basenameWithoutExtension(fileName);
+    final ext = p.extension(fileName);
+    int count = 1;
+    String newPath = p.join(trashLocation.path, '$base$ext');
 
-    if (videoFiles.isEmpty) {
-      setState(() {
-        // non serve cambiare currentIndex, tanto mostriamo il messaggio
-      });
-    } else {
-      setState(() {
-        // Se eliminiamo l'ultimo video, rimaniamo sull'ultimo valido
-        if (currentVideoIndex  >= videoFiles.length) {
-          currentVideoIndex = videoFiles.length - 1;
-        }
-      });
+    while (File(newPath).existsSync()) {
+      newPath = p.join(trashLocation.path, '$base($count)$ext');
+      count++;
     }
+
+    return newPath;
   }
 
-  /// Restituisce un widget: se il PNG esiste e non è vuoto
-  /// mostra l’immagine, altrimenti un piccolo loader e testo.
+  void deleteCurrentVideo() {
+    final file = videoFiles[currentVideoIndex];
+    final collagePath = _getCollagePath(file);
+    final collageFile = File(collagePath);
+
+    try {
+      // Sposta il video nel cestino
+      file.renameSync(p.join(trashLocation.path, p.basename(file.path)));
+
+      // Se il collage esiste, spostalo anche lui
+      if (collageFile.existsSync()) {
+        collageFile.renameSync(p.join(trashLocation.path, p.basename(collagePath)));
+      }
+
+      print('File and collage moved in: ${trashLocation.path}');
+    } catch (e) {
+      print('Error moving files: $e');
+    }
+
+    //remove the video from the list
+    videoFiles.removeAt(currentVideoIndex);
+
+    setState(() {
+      if (videoFiles.isEmpty) {
+        //no files remaining
+      } else if (currentVideoIndex >= videoFiles.length) {
+        //if deleting the last, go to the one before that
+        currentVideoIndex = videoFiles.length - 1;
+      }
+    });
+  }
+
+  //if the collage does not exist or is empty
+  //show the image or a loader and some text
   Widget _buildCollageView(String path) {
     final file = File(path);
     final fileExists = file.existsSync() && file.lengthSync() > 0;
@@ -329,7 +326,7 @@ if __name__ == "__main__":
           ),
           SizedBox(height: 8),
           Text(
-            'Generazione collage in corso…',
+            'Generating the collage...',
             style: TextStyle(color: Colors.white),
           ),
         ],
@@ -339,6 +336,7 @@ if __name__ == "__main__":
     return Image.file(file, fit: BoxFit.contain);
   }
 
+  //main ui
   @override
   Widget build(BuildContext context) {
     final hasVideos = videoFiles.isNotEmpty;
@@ -398,13 +396,13 @@ if __name__ == "__main__":
                 child: Column(
                   children: [
                     const Text(
-                      'Tutti i video completati!',
+                      'You finished!',
                       style: TextStyle(fontSize: 24),
                     ),
                     const SizedBox(height: 20),
                     ElevatedButton.icon(
                       icon: const Icon(Icons.refresh),
-                      label: const Text("Rivedi la lista"),
+                      label: const Text("Go back to the start"),
                       onPressed: () {
                         setState(() {
                           currentVideoIndex = 0; // Resetta l'indice per rivedere i video da capo
@@ -422,13 +420,14 @@ if __name__ == "__main__":
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(p.basename(video!.path), style: const TextStyle(fontSize: 16)),
+                      Text('${(video.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB', style: const TextStyle(fontSize: 16)),
                       const SizedBox(height: 10),
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         child: collagePath != null
                             ? _buildCollageView(collagePath)
                             : const Text(
-                                "Nessun collage da mostrare",
+                                "No collage to show",
                                 style: TextStyle(color: Colors.white),
                               ),
                       ),
@@ -438,26 +437,26 @@ if __name__ == "__main__":
                         children: [
                           ElevatedButton.icon(
                             icon: const Icon(Icons.delete),
-                            label: const Text("Elimina"),
+                            label: const Text("Delete"),
                             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                            onPressed: hasVideos ? deleteCurrentVideo : null, // Disabilita se non ci sono video
+                            onPressed: hasVideos ? deleteCurrentVideo : null, //disable if no videos available
                           ),
                           const SizedBox(width: 20),
                           ElevatedButton.icon(
                             icon: const Icon(Icons.check),
-                            label: const Text("Mantieni"),
+                            label: const Text("Keep"),
                             onPressed: hasVideos
                                 ? () {
                                     setState(() {
                                       if (currentVideoIndex < videoFiles.length - 1) {
                                         currentVideoIndex++;
                                       } else {
-                                        // Se siamo all'ultimo video, mostriamo la schermata di fine lista
-                                        currentVideoIndex = videoFiles.length; // Impostiamo un valore fuori dalla lista
+                                        //if we are on the last one show a widget
+                                        currentVideoIndex = videoFiles.length; //set a value outsite of the list
                                       }
                                     });
                                   }
-                                : null, // Disabilita se non ci sono video
+                                : null, //disable if no videos available
                           ),
                         ],
                       )
