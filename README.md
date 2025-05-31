@@ -9,11 +9,11 @@
 
 You can download the latest Windows build here:
 
-👉 **[Download VideoSwiper.exe](https://github.com/andrymas/VideoSwiper/releases/download/v0.2.0/VideoSwiper0.2.0.zip)**
+👉 **[Download VideoSwiper.exe](https://github.com/andrymas/VideoSwiper/releases/download/v0.2.1/VideoSwiper0.2.1.zip)**
 
 - No installation required.
 - Just download and run the `.exe` file.
-- Requires Python 3 with `opencv-python` and `Pillow` installed.
+- Requires Python 3 with `opencv-python` and `Pillow` installed and in PATH.
 
 ---
 
@@ -29,9 +29,7 @@ You can download the latest Windows build here:
 
 ---
 
-## 🧰 Requirements
-
-### Flutter
+## 🧰 Code Requirements
 
 - Flutter 3.7 or newer
 - Python 3.x
