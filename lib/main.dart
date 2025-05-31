@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:ffi';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -21,7 +22,7 @@ class VideoSwiperApp extends StatelessWidget {
       title: 'VideoSwiper',
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: Colors.indigo,
+        primaryColor: Colors.blueGrey,
       ),
       home: const VideoReviewPage(),
     );
@@ -99,7 +100,18 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
     //Local variable for dialog
     late StateSetter setStateDialog;
     Timer? ramTimer;
-    final jobs = Queue<File>.from(videoFiles);
+    final jobs = Queue<File>();
+    //checks if files already have a collage and skips them
+    for (var file in videoFiles) {
+      if (!await _collageAlreadyExists(file)) {
+        jobs.add(file);
+      } else {
+        print("✔️ Skipping ${file.path}, collage already exists");
+        setState(() {
+          generatedThumbnails++;
+        });
+      }
+    }
 
     //Show the dialog
     showDialog(
@@ -242,6 +254,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
       return;
     }
 
+    print("Collage doesn't exists for ${videoFile.path}, generating.");
     //runs the python script (should work only on windows)
     final result = await Process.run(
       'python3',
@@ -261,6 +274,16 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
     final base = p.basenameWithoutExtension(videoFile.path);
     final outputDir = p.dirname(videoFile.path);
     return p.join(outputDir, '${base}_collage.png');
+  }
+
+  //checks if a valid collage exists (size grater than 0 bytes)
+  Future<bool> _collageAlreadyExists(File videoFile) async {
+    final collageFile = File(_getCollagePath(videoFile));
+    if (await collageFile.exists()) {
+      final length = await collageFile.length();
+      return length > 0;
+    }
+    return false;
   }
 
   //creates the new file path in the trash (it seems the only way to move a file in dart)
@@ -305,7 +328,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
         //no files remaining
       } else if (currentVideoIndex >= videoFiles.length) {
         //if deleting the last, go to the one before that
-        currentVideoIndex = videoFiles.length - 1;
+        currentVideoIndex = videoFiles.length;
       }
     });
   }
@@ -347,7 +370,12 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('VideoSwiper'),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('VideoSwiper'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.folder_open),
@@ -360,8 +388,17 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
           children: [
             Column(
               children: [
-                Text("Number of async processes"),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.developer_board),
+                    SizedBox(width: 10),
+                    Text("Number of async processes"),
+                  ],
+                ),
                 Slider(
+                  activeColor: Theme.of(context).primaryColor,
+                  year2023: false,
                   label: maxJobs.toString(),
                   value: maxJobs.toDouble(),
                   min: 1,
@@ -374,8 +411,17 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
                     });
                   },
                 ),
-                Text("Number of frames per collage"),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.photo_library),
+                    SizedBox(width: 10),
+                    Text("Number of frames per collage"),
+                  ],
+                ),
                 Slider(
+                  activeColor: Theme.of(context).primaryColor,
+                  year2023: false,
                   label: framesNumber.toString(),
                   value: framesNumber.toDouble(),
                   min: 1,
@@ -401,8 +447,16 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
                     ),
                     const SizedBox(height: 20),
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.refresh),
-                      label: const Text("Go back to the start"),
+                      icon: Icon(
+                        Icons.refresh,
+                        color: Colors.black,
+                      ),
+                      label: Text(
+                        "Go back to the start",
+                        style: TextStyle(
+                          color: Colors.black,
+                        ),
+                      ),
                       onPressed: () {
                         setState(() {
                           currentVideoIndex = 0; // Resetta l'indice per rivedere i video da capo
@@ -436,15 +490,31 @@ class _VideoReviewPageState extends State<VideoReviewPage> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           ElevatedButton.icon(
-                            icon: const Icon(Icons.delete),
-                            label: const Text("Delete"),
+                            icon: const Icon(
+                              Icons.delete,
+                              color: Colors.black,
+                            ),
+                            label: Text(
+                              "Delete",
+                              style: TextStyle(
+                                color: Colors.black,
+                              ),
+                            ),
                             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                             onPressed: hasVideos ? deleteCurrentVideo : null, //disable if no videos available
                           ),
                           const SizedBox(width: 20),
                           ElevatedButton.icon(
-                            icon: const Icon(Icons.check),
-                            label: const Text("Keep"),
+                            icon: Icon(
+                              Icons.check,
+                              color: Colors.black,
+                            ),
+                            label: Text(
+                              "Keep",
+                              style: TextStyle(
+                                color: Colors.black
+                              ),
+                              ),
                             onPressed: hasVideos
                                 ? () {
                                     setState(() {
