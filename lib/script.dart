@@ -45,7 +45,7 @@ def crea_collage(frames, output_path, cols=8):
         return
 
     rows = math.ceil(len(frames) / cols)
-    thumb_size = (180, 320) if frames[0].height > frames[0].width else (320, 180)
+    thumb_size = (360, 640) if frames[0].height > frames[0].width else (640, 360)
     collage_width = cols * thumb_size[0]
     collage_height = rows * thumb_size[1]
 
