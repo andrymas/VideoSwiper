@@ -15,22 +15,39 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:videoswiper/script.dart';
 import 'package:videoswiper/video_collector.dart';
 import 'package:videoswiper/video_player.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart';
 
-Future<void> main(List<String> args) async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  setWindowTitle('VideoSwiper');
-  setWindowMinSize(const Size(516, 600));
+  try {
+    await windowManager.ensureInitialized();
+    await windowManager.setPreventClose(true);
+    setWindowTitle('VideoSwiper');
+    setWindowMinSize(const Size(516, 600));
+
+    WindowOptions windowOptions = const WindowOptions(
+      size: Size(800, 600),
+      center: true,
+      titleBarStyle: TitleBarStyle.normal,
+    );
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  } catch (e, st) {
+    debugPrint('⚠️ windowManager error: $e\n$st');
+  }
 
   if (args.firstOrNull == 'multi_window') {
     runApp(VideoCollectorWindow());
-  }else {
+  } else {
     MediaKit.ensureInitialized();
     runApp(VideoSwiperApp());
   }
-
 }
+
 
 
 //drag scroll class
@@ -84,7 +101,7 @@ class VideoReviewPage extends StatefulWidget {
   State<VideoReviewPage> createState() => _VideoReviewPageState();
 }
 
-class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderStateMixin {
+class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderStateMixin, WindowListener {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TransformationController _transformationController = TransformationController();
   late Directory trashLocation;
@@ -102,6 +119,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   bool _isMenuOpen = false;
   bool _beginPaused = false;
   bool _beginMuted = true;
+  Process? _collageProcess;
   double _zoom = 1.0;
   final double _minZoom = 1;
   final double _maxZoom = 3;
@@ -113,20 +131,81 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   Set<QualityLevel> _selectedQuality = {QualityLevel.medium};
 
   @override
-  void initState(){
+  void initState() {
+    super.initState();
     _controller = AnimationController(
       duration: const Duration(milliseconds: 300),
-      vsync: this
+      vsync: this,
     );
-    super.initState();
-    preparePythonScript();
     _transformationController.value = Matrix4.identity() * _zoom;
+
+    windowManager.addListener(this);
+    preparePythonScript();
   }
 
+  //removing the ordinary dispose method
   @override
   void dispose() {
-    _controller.dispose();
+    windowManager.removeListener(this);
     super.dispose();
+  }
+
+  //new dispose method asking the user input to close the windows when processing collages
+  @override
+  Future<void> onWindowClose() async {
+    if (getIsGeneratingCollage()) {
+      final shouldClose = await showDialog<bool>(
+        context: context,
+        builder: (_) {
+          return AlertDialog(
+            backgroundColor: const Color.fromARGB(255, 22, 26, 26),
+            title: const Text(
+              "Are you sure you want to close VideoSwiper?",
+                style: TextStyle(
+                  color: Colors.white,
+                  decoration: TextDecoration.none
+                ),
+              ),
+            content: const Text(
+              "The app will finish the collages it's currently processing.",
+              style: TextStyle(
+                color: Colors.white,
+                decoration: TextDecoration.none
+              ),
+            ),
+            actions: [
+              TextButton(
+                child: const Text(
+                  'No',
+                  style: TextStyle(
+                    color: Colors.white,
+                    decoration: TextDecoration.none
+                  ),
+                ),
+                onPressed: () => Navigator.of(context).pop(false),
+              ),
+              TextButton(
+                child: const Text(
+                  'Yes',
+                  style: TextStyle(
+                    color: Colors.white,
+                    decoration: TextDecoration.none
+                  ),
+                ),
+                onPressed: () => Navigator.of(context).pop(true),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (shouldClose == true) {
+        await stopCollageGeneration();
+        await windowManager.destroy();
+      }
+    } else {
+      await windowManager.destroy();
+    }
   }
 
   void _changeImageSize(int action) {
@@ -182,6 +261,26 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     //pythonScript is in script.dart
     await script.writeAsString(pythonScript);
     _scriptFile = script;
+  }
+
+  bool getIsGeneratingCollage() {
+    if (_collageProcess != null) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  Future<void> stopCollageGeneration() async {
+    if (_collageProcess != null) {
+      print("🛑 Terminazione processo in corso...");
+      _collageProcess!.kill(ProcessSignal.sigterm);
+      await _collageProcess!.exitCode;
+      print("✅ Processo terminato.");
+      _collageProcess = null;
+    } else {
+      print("ℹ️ Nessun processo attivo.");
+    }
   }
 
   Future<void> pickFolderAndLoadVideos() async {
@@ -380,19 +479,26 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
       return;
     }
 
-    print("Collage doesn't exists for ${videoFile.path}, generating.");
+    print("Collage doesn't exist for ${videoFile.path}, generating.");
 
-    //runs the python script (should work only on windows)
-    final result = await Process.run(
-      'python3',
-      [_scriptFile!.path, videoFile.path, framesNumber.toString(), qualitySetting.toString()],
-      runInShell: true,
-    );
+    try {
+      _collageProcess = await Process.start(
+        'python3',
+        [_scriptFile!.path, videoFile.path, framesNumber.toString(), qualitySetting.toString()],
+        runInShell: true,
+      );
 
-    if (result.exitCode != 0) {
-      print("Collage error ${videoFile.path}: ${result.stderr}");
-    } else {
-      print("✅ Collage generated: ${videoFile.path}");
+      final exitCode = await _collageProcess!.exitCode;
+
+      if (exitCode != 0) {
+        print("❌ Collage error ${videoFile.path}");
+      } else {
+        print("✅ Collage generated: ${videoFile.path}");
+      }
+    } catch (e) {
+      print("Error running script: $e");
+    } finally {
+      _collageProcess = null;
     }
   }
 
