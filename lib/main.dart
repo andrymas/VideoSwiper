@@ -60,6 +60,15 @@ class SmoothScrollBehavior extends MaterialScrollBehavior {
   };
 }
 
+class MediaClass {
+  File fileReference;
+  bool isVideo;
+
+  MediaClass({required this.fileReference, required this.isVideo});
+  
+  get path => fileReference!.path;
+}
+
 enum QualityLevel {
   lowest,
   low,
@@ -112,7 +121,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   int framesNumber = 40;
   int maxJobs = 4;
   File? _scriptFile;
-  List<File> videoFiles = [];
+  List<MediaClass> foundTotalFiles = [];
   String selectedFolder = "Select a folder";
   bool _showPlayer = false;
   bool _isHovering = false;
@@ -127,6 +136,15 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   bool _allowZoom = true;
   late AnimationController _controller;
   int qualitySetting = 2;
+
+  final videoExtensions = [
+    '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm',
+    '.flv', '.wmv', '.3gp', '.3g2', '.mpeg', '.mpg', '.ts'
+  ];
+
+  final photoExtensions = [
+    '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.wbmp'
+  ];
 
   Set<QualityLevel> _selectedQuality = {QualityLevel.medium};
 
@@ -290,31 +308,39 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
 
     //File list
     trashLocation = await Directory('$folderPath/trash').create(recursive: false);
-    final videoExtensions = [
-      '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm',
-      '.flv', '.wmv', '.3gp', '.3g2', '.mpeg', '.mpg', '.ts'
-    ];
-    final files = Directory(folderPath)
-        .listSync()
-        .whereType<File>()
+
+    final allFiles = Directory(folderPath).listSync().whereType<File>().toList();
+
+    final foundVideoFiles = allFiles
         .where((f) => videoExtensions.contains(p.extension(f.path).toLowerCase()))
+        .map((f) => MediaClass(fileReference: f, isVideo: true))
         .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+      ..sort((a, b) => a.fileReference!.path.compareTo(b.fileReference!.path));
+
+    final foundPhotoFiles = allFiles
+        .where((f) => photoExtensions.contains(p.extension(f.path).toLowerCase()))
+        .where((f) => !p.basename(f.path).contains('_collage'))
+        .map((f) => MediaClass(fileReference: f, isVideo: false))
+        .toList()
+      ..sort((a, b) => a.fileReference!.path.compareTo(b.fileReference!.path));
+
+    final totalFiles = [...foundVideoFiles, ...foundPhotoFiles];
+    totalFiles.sort((a, b) => a.path.compareTo(b.path));
 
     //Variable reset
     setState(() {
       selectedFolder = folderPath;
-      videoFiles = files;
+      foundTotalFiles = totalFiles;
       generatedThumbnails = 0;
-      totalJobs = files.length;
+      totalJobs = totalFiles.length;
     });
 
     //Local variable for dialog
     late StateSetter setStateDialog;
     Timer? ramTimer;
-    final jobs = Queue<File>();
+    final jobs = Queue<MediaClass>();
     //checks if files already have a collage and skips them
-    for (var file in videoFiles) {
+    for (var file in foundTotalFiles) {
       if (!await _collageAlreadyExists(file)) {
         jobs.add(file);
       } else {
@@ -473,44 +499,49 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     });
   }
 
-  Future<void> _generateCollage(File videoFile) async {
+  Future<void> _generateCollage(MediaClass file) async {
     if (_scriptFile == null) {
       print("❗ Script not ready");
       return;
     }
 
-    print("Collage doesn't exist for ${videoFile.path}, generating.");
+    print("Collage doesn't exist for ${file.path}, generating.");
 
-    try {
-      _collageProcess = await Process.start(
-        'python3',
-        [_scriptFile!.path, videoFile.path, framesNumber.toString(), qualitySetting.toString()],
-        runInShell: true,
-      );
+    if(file.isVideo){
+      try {
+        _collageProcess = await Process.start(
+          'python3',
+          [_scriptFile!.path, file.path, framesNumber.toString(), qualitySetting.toString()],
+          runInShell: true,
+        );
 
-      final exitCode = await _collageProcess!.exitCode;
+        final exitCode = await _collageProcess!.exitCode;
 
-      if (exitCode != 0) {
-        print("❌ Collage error ${videoFile.path}");
-      } else {
-        print("✅ Collage generated: ${videoFile.path}");
+        if (exitCode != 0) {
+          print("❌ Collage error ${file.path}");
+        } else {
+          print("✅ Collage generated: ${file.path}");
+        }
+      } catch (e) {
+        print("Error running script: $e");
+      } finally {
+        _collageProcess = null;
       }
-    } catch (e) {
-      print("Error running script: $e");
-    } finally {
-      _collageProcess = null;
     }
   }
 
   //simple function to get the collage path of a video
-  String _getCollagePath(File videoFile) {
-    final base = p.basenameWithoutExtension(videoFile.path);
-    final outputDir = p.dirname(videoFile.path);
-    return p.join(outputDir, '${base}_collage.png');
+  String _getCollagePath(MediaClass videoFile) {
+    if(videoFile.isVideo){
+      final base = p.basenameWithoutExtension(videoFile.path);
+      final outputDir = p.dirname(videoFile.path);
+      return p.join(outputDir, '${base}_collage.png');
+    }
+    return videoFile.path;
   }
 
   //checks if a valid collage exists (size greater than 0 bytes)
-  Future<bool> _collageAlreadyExists(File videoFile) async {
+  Future<bool> _collageAlreadyExists(MediaClass videoFile) async {
     final collageFile = File(_getCollagePath(videoFile));
     if (await collageFile.exists()) {
       final length = await collageFile.length();
@@ -535,40 +566,51 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   }
 
   void deleteCurrentVideo() {
-    final file = videoFiles[currentVideoIndex];
-    final collagePath = _getCollagePath(file);
-    final collageFile = File(collagePath);
+      // Ottieni il riferimento all'oggetto MediaClass
+    final media = foundTotalFiles[currentVideoIndex];
+    
+    // Ottieni il riferimento al File effettivo
+    final fileToDelete = media.fileReference!; 
+    final trashPath = p.join(trashLocation.path, p.basename(fileToDelete.path));
 
     try {
-      // Sposta il video nel cestino
-      file.renameSync(p.join(trashLocation.path, p.basename(file.path)));
+      // Sposta il file video/foto nel cestino
+      fileToDelete.renameSync(trashPath);
 
-      // Se il collage esiste, spostalo anche lui
-      if (collageFile.existsSync()) {
-        collageFile.renameSync(p.join(trashLocation.path, p.basename(collagePath)));
+      // Se è un video, sposta anche il collage
+      if (media.isVideo) {
+        final collagePath = _getCollagePath(media);
+        final collageFile = File(collagePath);
+        
+        if (collageFile.existsSync()) {
+          final collageTrashPath = p.join(trashLocation.path, p.basename(collageFile.path));
+          collageFile.renameSync(collageTrashPath);
+          print('File e collage spostati in: ${trashLocation.path}');
+        }
+      } else {
+        print('File immagine spostato in: ${trashLocation.path}');
       }
-
-      print('File and collage moved in: ${trashLocation.path}');
     } catch (e) {
-      print('Error moving files: $e');
+      print('Errore durante lo spostamento dei file: $e');
     }
 
-    //remove the video from the list
-    videoFiles.removeAt(currentVideoIndex);
+    // Rimuovi l'elemento dalla lista
+    foundTotalFiles.removeAt(currentVideoIndex);
 
     setState(() {
-      if (videoFiles.isEmpty) {
-        //no files remaining
-      } else if (currentVideoIndex >= videoFiles.length) {
-        //if deleting the last, go to the one before that
-        currentVideoIndex = videoFiles.length;
+      if (foundTotalFiles.isEmpty) {
+        // Nessun file rimanente, puoi gestire la UI di conseguenza
+      } else if (currentVideoIndex >= foundTotalFiles.length) {
+        // Se l'elemento eliminato era l'ultimo, vai a quello precedente
+        currentVideoIndex = foundTotalFiles.length - 1;
       }
+      // Altrimenti, l'indice corrente rimane valido per il prossimo elemento
     });
   }
 
   //if the collage does not exist or is empty
   //show the image or a loader and some text
-  Widget _buildCollageView(String path) {
+  Widget _buildCollageView(String path, bool isVideo) {
     final file = File(path);
     final fileExists = file.existsSync() && file.lengthSync() > 0;
 
@@ -599,12 +641,12 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
         else
           Image.file(file, fit: BoxFit.contain),
         SizedBox(height: 10,),
-        if (videoFiles.isNotEmpty && _showPlayer)
+        if (foundTotalFiles.isNotEmpty && _showPlayer && isVideo == true)
           SizedBox(
             height: 400,
             child: MiniVideoPlayer(
-              key: ValueKey(videoFiles[currentVideoIndex].path),
-              videoPath: videoFiles[currentVideoIndex].path,
+              key: ValueKey(foundTotalFiles[currentVideoIndex].path),
+              videoPath: foundTotalFiles[currentVideoIndex].path,
               beginPaused: _beginPaused,
               beginMuted: _beginMuted,
             ),
@@ -745,11 +787,11 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   @override
   Widget build(BuildContext context) {
     final double drawerWidth = 500;
-    final hasVideos = videoFiles.isNotEmpty;
-    final video = hasVideos && currentVideoIndex < videoFiles.length
-        ? videoFiles[currentVideoIndex]
+    final hasFiles = foundTotalFiles.isNotEmpty;
+    final video = hasFiles && currentVideoIndex < foundTotalFiles.length
+        ? foundTotalFiles[currentVideoIndex]
         : null;
-    final collagePath = hasVideos && video != null ? _getCollagePath(video) : null;
+    final collagePath = hasFiles && video != null ? _getCollagePath(video) : null;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -813,14 +855,14 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                 child: Column(
                   children: [
                     Text(
-                      '${currentVideoIndex}/${videoFiles.length}',
+                      '${currentVideoIndex}/${foundTotalFiles.length}',
                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
                     SizedBox(
                         width: 100,
                         child: LinearProgressIndicator(
-                          value: videoFiles.length > 0 ? currentVideoIndex / videoFiles.length : 0.0,
+                          value: foundTotalFiles.length > 0 ? currentVideoIndex / foundTotalFiles.length : 0.0,
                           color: Colors.blueAccent,
                           backgroundColor: Colors.blueGrey,
                         ),
@@ -841,7 +883,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                           'type': 'Sub window',
                         }));
                         window
-                          ..setTitle('VideoGatherer')
+                          ..setTitle('MediaGatherer')
                           ..show();
                       },
                       icon: const Icon(Icons.archive),
@@ -871,7 +913,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
       ),
       body: Stack(
         children:[
-          if (video == null && currentVideoIndex == videoFiles.length)
+          if (video == null && currentVideoIndex == foundTotalFiles.length)
             Container(
               width: double.infinity,
               height: double.infinity,
@@ -915,14 +957,14 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                                   style: const TextStyle(fontSize: 16, color: Colors.white),
                                 ),
                                 Text(
-                                  '${(video.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB',
+                                  '${(video.fileReference.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB',
                                   style: const TextStyle(fontSize: 16, color: Colors.white),
                                 ),
                                 const SizedBox(height: 10),
                                 Padding(
                                   padding: const EdgeInsets.symmetric(vertical: 10),
                                   child: collagePath != null
-                                      ? _buildCollageView(collagePath)
+                                      ? _buildCollageView(collagePath, foundTotalFiles[currentVideoIndex].isVideo)
                                       : const Text(
                                           "No collage to show",
                                           style: TextStyle(color: Colors.white),
@@ -966,7 +1008,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                                       padding: EdgeInsets.zero,
                                       constraints: const BoxConstraints(),
                                       iconSize: 32,
-                                      onPressed: hasVideos
+                                      onPressed: hasFiles
                                           ? () {
                                               setState(() {
                                                 if (currentVideoIndex > 0) {
@@ -989,7 +1031,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                                             padding: EdgeInsets.zero,
                                             constraints: const BoxConstraints(),
                                             iconSize: 32,
-                                            onPressed: hasVideos
+                                            onPressed: hasFiles
                                                 ? () {_changeImageSize(1);}
                                                 : null,
                                             icon: const Icon(Icons.zoom_in),
@@ -1000,7 +1042,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                                             padding: EdgeInsets.zero,
                                             constraints: const BoxConstraints(),
                                             iconSize: 32,
-                                            onPressed: hasVideos
+                                            onPressed: hasFiles
                                                 ? () {_changeImageSize(2);}
                                                 : null,
                                             icon: const Icon(Icons.zoom_out),
@@ -1016,10 +1058,10 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                                       padding: EdgeInsets.zero,
                                       constraints: const BoxConstraints(),
                                       iconSize: 32,
-                                      onPressed: hasVideos
+                                      onPressed: hasFiles
                                           ? () {
                                               setState(() {
-                                                if (currentVideoIndex < videoFiles.length) {
+                                                if (currentVideoIndex < foundTotalFiles.length) {
                                                   currentVideoIndex++;
                                                 } else {
                                                   currentVideoIndex = 0;
@@ -1047,7 +1089,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                                           borderRadius: BorderRadius.circular(5),
                                         ),
                                       ),
-                                      onPressed: hasVideos ? deleteCurrentVideo : null,
+                                      onPressed: hasFiles ? deleteCurrentVideo : null,
                                     ),
                                     const SizedBox(width: 5),
                                     ElevatedButton.icon(
@@ -1062,10 +1104,10 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                                           borderRadius: BorderRadius.circular(5),
                                         ),
                                       ),
-                                      onPressed: hasVideos
+                                      onPressed: hasFiles
                                           ? () {
                                               setState(() {
-                                                if (currentVideoIndex < videoFiles.length) {
+                                                if (currentVideoIndex < foundTotalFiles.length) {
                                                   currentVideoIndex++;
                                                 } else {
                                                   currentVideoIndex = 0;

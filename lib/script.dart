@@ -46,7 +46,7 @@ def estrai_frame_temporizzati(video_path, num_frame):
     cap.release()
     return frames
 
-# --- NEW FUNCTION: Calculate thumbnail size based on quality ---
+# --- Calculate thumbnail size based on quality ---
 def calculate_thumbnail_size(quality_level, original_width, original_height):
     """
     Calculates thumbnail dimensions based on quality level and
@@ -98,13 +98,12 @@ def crea_collage(frames, output_path, cols=8, quality_setting=2):
     original_frame_width = frames[0].width
     original_frame_height = frames[0].height
 
-    # --- REPLACED LINE: Calculate thumb_size based on quality_setting ---
+    # --- Calculate thumb_size based on quality_setting ---
     thumb_size = calculate_thumbnail_size(
         quality_setting,
         original_frame_width,
         original_frame_height
     )
-    # --- END REPLACED LINE ---
 
     rows = math.ceil(len(frames) / cols)
     collage_width = cols * thumb_size[0]

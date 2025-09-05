@@ -1,7 +1,7 @@
 # 🎞️ VideoSwiper
 
-**VideoSwiper** is a Flutter desktop application that helps you preview and review video files using automatically generated thumbnail collages.
-Ideal for quickly scanning through large video folders and deciding which files to keep or delete.
+**VideoSwiper** is a Flutter desktop application that helps you preview and review video and image files using automatically generated thumbnail collages.
+Ideal for quickly scanning through large media folders and deciding which files to keep or delete.
 
 ![Video](video.gif)
 
@@ -11,7 +11,7 @@ Ideal for quickly scanning through large video folders and deciding which files 
 
 You can download the latest Windows build here:
 
-👉 **[Download VideoSwiper.exe](https://github.com/andrymas/VideoSwiper/releases/download/v1.1.0/VideoSwiper1.1.0.zip)**
+👉 **[Download VideoSwiper.exe](https://github.com/andrymas/VideoSwiper/releases/download/v1.2.0/VideoSwiper1.2.0.zip)**
 
 - No installation required  
 - Just download and run the `.exe` file  
@@ -22,9 +22,9 @@ You can download the latest Windows build here:
 ## ✨ Features
 
 ### 📁 Video Handling
-- **Batch Folder Selection**: Pick an entire folder of videos.
-- **Wide Extension Compatibility**: Supports `.mp4`, `.avi`, `.mov`, `.mkv`, `.m4v`, `.webm`, `.flv`, `.wmv`, `.3gp`, `.3g2`, `.mpeg`, `.mpg`, `.ts`.
-- **VideoGatherer (Beta)**: Automatically gather videos from nested directories into a single folder (with copy or move mode).
+- **Batch Folder Selection**: Pick an entire folder of files.
+- **Wide Extension Compatibility**: Supports `.mp4`, `.avi`, `.mov`, `.mkv`, `.m4v`, `.webm`, `.flv`, `.wmv`, `.3gp`, `.3g2`, `.mpeg`, `.mpg`, `.ts`., `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.bmp`, `.wbmp`
+- **MediaGatherer (Beta)**: Automatically gather files from nested directories into a single folder (with copy or move mode).
 
 ### 🖼️ Thumbnail Collage
 - **Collage Generation**: Extracts evenly spaced frames and arranges them into a grid using Python, OpenCV, and Pillow.
@@ -33,7 +33,7 @@ You can download the latest Windows build here:
 
 ### ⚡ Performance & Control
 - **Parallel Processing**: Run multiple Python workers with real-time progress feedback.
-- **Progress Indicator**: Displays in the AppBar while generating thumbnails.
+- **Progress Indicator**: Displays a counter while generating thumbnails.
 - **Dynamic Aspect Ratio**: Video player adapts automatically to video dimensions.
 
 ### 🎛️ UI & Usability
@@ -44,10 +44,9 @@ You can download the latest Windows build here:
 - **Slider Improvements**: Refined sliders for async job count and frame selection.
 
 ### 🔮 Future plans
-- **Image compatibility**
 - **Video compression**
 - **Android port**
-- **Create an icon for the project**
+- **Create a better icon for the project**
 - **Batch selection with grid**
 
 ---
@@ -69,3 +68,7 @@ You can download the latest Windows build here:
   flutter clean
   flutter pub get
   flutter build windows
+
+---
+## Go check out my other project!
+**[LoopBack](https://play.google.com/store/apps/details?id=com.andrymasdev.loopback.loopback)**

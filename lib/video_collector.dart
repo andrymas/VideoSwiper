@@ -71,7 +71,8 @@ class _VideoCollectorWindowState extends State<VideoCollectorWindow> {
 
   final List<String> allowedExtensions = [
     '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm',
-    '.flv', '.wmv', '.3gp', '.3g2', '.mpeg', '.mpg', '.ts'
+    '.flv', '.wmv', '.3gp', '.3g2', '.mpeg', '.mpg', '.ts',
+    '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.wbmp'
   ];
 
   Future<List<File>> collectVideosRecursively(Directory rootDir) async {
@@ -112,13 +113,13 @@ class _VideoCollectorWindowState extends State<VideoCollectorWindow> {
         useMaterial3: true,
         primaryColor: Colors.blueGrey,
       ),
-      title: 'VideoGatherer',
+      title: 'MediaGatherer',
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         backgroundColor: const Color.fromARGB(255, 12, 17, 17),
         appBar: AppBar(
           title: const Text(
-            'VideoGatherer',
+            'MediaGatherer',
             style: TextStyle(color: Colors.white),
           ),
           backgroundColor: const Color.fromARGB(255, 22, 26, 26),
