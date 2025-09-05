@@ -68,6 +68,7 @@ You can download the latest Windows build here:
   flutter clean
   flutter pub get
   flutter build windows
+  ```
 
 ---
 ## Go check out my other project!
