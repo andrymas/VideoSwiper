@@ -72,5 +72,6 @@ You can download the latest Windows build here:
 
 ---
 ## Go check out my other project!
-**[My website](www.andrymasdev.it)**
+**[My website](https://www.andrymasdev.it)**
+
 **[LoopBack](https://play.google.com/store/apps/details?id=com.andrymasdev.loopback.loopback)**
