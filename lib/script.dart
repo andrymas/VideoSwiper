@@ -1,4 +1,4 @@
-  final pythonScript = '''
+final pythonScript = '''
 import os
 import cv2
 from PIL import Image

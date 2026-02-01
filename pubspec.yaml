@@ -54,6 +54,9 @@ dependencies:
   url_launcher: ^6.3.1
   desktop_multi_window: ^0.2.1
   window_manager: ^0.5.1
+  flutter_rust_bridge: 2.11.1
+  rust_lib_videoswiper:
+    path: rust_builder
 
 dev_dependencies:
   flutter_test:
@@ -65,6 +68,13 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  integration_test:
+    sdk: flutter
+
+flutter_rust_bridge:
+  rust_input: crate::api
+  rust_root: rust/
+  dart_output: lib/src/rust
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

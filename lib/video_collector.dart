@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:file_picker/file_picker.dart';
-import 'package:window_manager/window_manager.dart';
 
 class VideoCollectorWindow extends StatefulWidget {
   const VideoCollectorWindow({super.key});
@@ -58,9 +57,9 @@ class _VideoCollectorWindowState extends State<VideoCollectorWindow> {
       await moveVideos(videos, targetDir, copyFiles);
     } catch (e) {
       debugPrint('Errore durante la raccolta o spostamento: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Errore: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Errore: $e')));
     } finally {
       setState(() {
         _isMoving = false;
@@ -68,16 +67,35 @@ class _VideoCollectorWindowState extends State<VideoCollectorWindow> {
     }
   }
 
-
   final List<String> allowedExtensions = [
-    '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm',
-    '.flv', '.wmv', '.3gp', '.3g2', '.mpeg', '.mpg', '.ts',
-    '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.wbmp'
+    '.mp4',
+    '.avi',
+    '.mov',
+    '.mkv',
+    '.m4v',
+    '.webm',
+    '.flv',
+    '.wmv',
+    '.3gp',
+    '.3g2',
+    '.mpeg',
+    '.mpg',
+    '.ts',
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.webp',
+    '.gif',
+    '.bmp',
+    '.wbmp',
   ];
 
   Future<List<File>> collectVideosRecursively(Directory rootDir) async {
     List<File> videos = [];
-    await for (var entity in rootDir.list(recursive: true, followLinks: false)) {
+    await for (var entity in rootDir.list(
+      recursive: true,
+      followLinks: false,
+    )) {
       if (entity is File) {
         final ext = p.extension(entity.path).toLowerCase();
         if (allowedExtensions.contains(ext)) {
@@ -92,7 +110,11 @@ class _VideoCollectorWindowState extends State<VideoCollectorWindow> {
     return videos;
   }
 
-  Future<void> moveVideos(List<File> videos, Directory targetDir, bool copy) async {
+  Future<void> moveVideos(
+    List<File> videos,
+    Directory targetDir,
+    bool copy,
+  ) async {
     for (final video in videos) {
       final newPath = p.join(targetDir.path, p.basename(video.path));
       if (copy) {
@@ -109,10 +131,7 @@ class _VideoCollectorWindowState extends State<VideoCollectorWindow> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      theme: ThemeData(
-        useMaterial3: true,
-        primaryColor: Colors.blueGrey,
-      ),
+      theme: ThemeData(useMaterial3: true, primaryColor: Colors.blueGrey),
       title: 'MediaGatherer',
       debugShowCheckedModeBanner: false,
       home: Scaffold(
@@ -132,67 +151,70 @@ class _VideoCollectorWindowState extends State<VideoCollectorWindow> {
               children: [
                 ElevatedButton(
                   style: ButtonStyle(
-                    backgroundColor: MaterialStateProperty.all<Color>(Colors.blueGrey)
+                    backgroundColor: WidgetStateProperty.all<Color>(
+                      Colors.blueGrey,
+                    ),
                   ),
                   onPressed: _isMoving ? null : pickSourceFolder,
-                  child: Text(sourceDirPath == null
-                      ? 'Select source folder'
-                      : 'Source: $sourceDirPath',
-                    style: TextStyle(
-                      color: Colors.white
-                    ),
+                  child: Text(
+                    sourceDirPath == null
+                        ? 'Select source folder'
+                        : 'Source: $sourceDirPath',
+                    style: TextStyle(color: Colors.white),
                   ),
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton(
                   style: ButtonStyle(
-                    backgroundColor: MaterialStateProperty.all<Color>(Colors.blueGrey)
+                    backgroundColor: WidgetStateProperty.all<Color>(
+                      Colors.blueGrey,
+                    ),
                   ),
                   onPressed: _isMoving ? null : pickTargetFolder,
-                  child: Text(targetDirPath == null
-                      ? 'Select destination folder'
-                      : 'Destination: $targetDirPath',
-                      style: TextStyle(
-                        color: Colors.white
-                      ),
+                  child: Text(
+                    targetDirPath == null
+                        ? 'Select destination folder'
+                        : 'Destination: $targetDirPath',
+                    style: TextStyle(color: Colors.white),
                   ),
                 ),
                 const SizedBox(height: 20),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(copyFiles 
-                      ? 'Copy '
-                      : 'Move (faster) ',
-                    style: const TextStyle(color: Colors.white)),
+                    Text(
+                      copyFiles ? 'Copy ' : 'Move (faster) ',
+                      style: const TextStyle(color: Colors.white),
+                    ),
                     Switch(
-                      trackColor: copyFiles
-                        ? MaterialStateProperty.all<Color>(Colors.blueGrey)
-                        : null,
+                      trackColor:
+                          copyFiles
+                              ? WidgetStateProperty.all<Color>(Colors.blueGrey)
+                              : null,
                       value: copyFiles,
                       onChanged: (val) {
                         setState(() {
                           copyFiles = val;
                         });
                       },
-                    )
+                    ),
                   ],
                 ),
                 const SizedBox(height: 30),
                 ElevatedButton(
                   style: ButtonStyle(
-                    backgroundColor: MaterialStateProperty.all<Color>(Colors.blueGrey)
+                    backgroundColor: WidgetStateProperty.all<Color>(
+                      Colors.blueGrey,
+                    ),
                   ),
                   onPressed: _isMoving ? null : startCollection,
                   child: Text(
                     'Start gathering',
-                    style: TextStyle(
-                      color: Colors.white
-                    ),
+                    style: TextStyle(color: Colors.white),
                   ),
                 ),
                 const SizedBox(height: 40),
-                if(_isMoving)
+                if (_isMoving)
                   Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -201,14 +223,15 @@ class _VideoCollectorWindowState extends State<VideoCollectorWindow> {
                       SizedBox(
                         width: 100,
                         child: LinearProgressIndicator(
-                          value: _totalTasks > 0 ? _finishedTasks / _totalTasks : 0.0,
+                          value:
+                              _totalTasks > 0
+                                  ? _finishedTasks / _totalTasks
+                                  : 0.0,
                         ),
                       ),
                       Text(
-                        "${_finishedTasks}/${_totalTasks}",
-                        style: TextStyle(
-                          color: Colors.white
-                        ),
+                        "$_finishedTasks/$_totalTasks",
+                        style: TextStyle(color: Colors.white),
                       ),
                     ],
                   ),

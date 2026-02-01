@@ -12,7 +12,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:system_info/system_info.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:videoswiper/customTypes.dart';
 import 'package:videoswiper/script.dart';
+import 'package:videoswiper/src/rust/api/collage_generation.dart';
 import 'package:videoswiper/video_collector.dart';
 import 'package:videoswiper/video_player.dart';
 import 'package:window_manager/window_manager.dart';
@@ -48,8 +50,6 @@ void main(List<String> args) async {
   }
 }
 
-
-
 //drag scroll class
 class SmoothScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -58,30 +58,6 @@ class SmoothScrollBehavior extends MaterialScrollBehavior {
     PointerDeviceKind.mouse,
     PointerDeviceKind.trackpad
   };
-}
-
-class MediaClass {
-  File fileReference;
-  bool isVideo;
-
-  MediaClass({required this.fileReference, required this.isVideo});
-  
-  get path => fileReference!.path;
-}
-
-enum QualityLevel {
-  lowest,
-  low,
-  medium,
-  high,
-  ultra,
-}
-
-extension QualityLevelExtension on QualityLevel {
-  String toDisplayString() {
-    return toString().split('.').last[0].toUpperCase() +
-      toString().split('.').last.substring(1);
-  }
 }
 
 //app creation class
@@ -120,7 +96,6 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   //init variables
   int framesNumber = 40;
   int maxJobs = 4;
-  File? _scriptFile;
   List<MediaClass> foundTotalFiles = [];
   String selectedFolder = "Select a folder";
   bool _showPlayer = false;
@@ -158,7 +133,6 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     _transformationController.value = Matrix4.identity() * _zoom;
 
     windowManager.addListener(this);
-    preparePythonScript();
   }
 
   //removing the ordinary dispose method
@@ -218,7 +192,6 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
       );
 
       if (shouldClose == true) {
-        await stopCollageGeneration();
         await windowManager.destroy();
       }
     } else {
@@ -272,32 +245,11 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     });
   }
 
-  Future<void> preparePythonScript() async {
-    final tempDir = await Directory.systemTemp.createTemp('video_swiper_script');
-    final scriptPath = p.join(tempDir.path, 'collage_generator.py');
-    final script = File(scriptPath);
-    //pythonScript is in script.dart
-    await script.writeAsString(pythonScript);
-    _scriptFile = script;
-  }
-
   bool getIsGeneratingCollage() {
     if (_collageProcess != null) {
       return true;
     } else {
       return false;
-    }
-  }
-
-  Future<void> stopCollageGeneration() async {
-    if (_collageProcess != null) {
-      print("🛑 Terminazione processo in corso...");
-      _collageProcess!.kill(ProcessSignal.sigterm);
-      await _collageProcess!.exitCode;
-      print("✅ Processo terminato.");
-      _collageProcess = null;
-    } else {
-      print("ℹ️ Nessun processo attivo.");
     }
   }
 
@@ -472,61 +424,20 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     });
 
     //Thread worker
-    Future<void> worker() async {
-      while (jobs.isNotEmpty) {
-        final file = jobs.removeFirst();
-        await _generateCollage(file);
-
-        generatedThumbnails++;
-        // Update the dialog every new thumbnail
-        setStateDialog((){});
-      }
-    }
-
-
-    //Creates N paralel workers
-    final workers = List.generate(maxJobs, (_) => worker());
-    await Future.wait(workers);
-
-    //Stops the timer
-    ramTimer.cancel();
-    //Closes the dialog
-    Navigator.of(context).pop();
-
-    //Gets the first generated video
-    setState(() {
-      currentVideoIndex = 0;
-    });
-  }
-
-  Future<void> _generateCollage(MediaClass file) async {
-    if (_scriptFile == null) {
-      print("❗ Script not ready");
-      return;
-    }
-
-    print("Collage doesn't exist for ${file.path}, generating.");
-
-    if(file.isVideo){
-      try {
-        _collageProcess = await Process.start(
-          'python3',
-          [_scriptFile!.path, file.path, framesNumber.toString(), qualitySetting.toString()],
-          runInShell: true,
-        );
-
-        final exitCode = await _collageProcess!.exitCode;
-
-        if (exitCode != 0) {
-          print("❌ Collage error ${file.path}");
-        } else {
-          print("✅ Collage generated: ${file.path}");
-        }
-      } catch (e) {
-        print("Error running script: $e");
-      } finally {
-        _collageProcess = null;
-      }
+    try {
+      // CHIAMATA UNICA A RUST
+      // Passiamo l'intera lista. Rust gestirà internamente il parallelismo.
+      await generateCollage(
+        paths: totalFiles.map((e) => e.path.toString()).toList(),
+        numFrames: framesNumber,
+        quality: qualitySetting,
+        // Se vuoi aggiornare la UI mentre Rust lavora, 
+        // FRB supporta gli Stream (StreamSink)
+      );
+    } catch (e) {
+      print("Errore durante il batch Rust: $e");
+    } finally {
+      Navigator.of(context).pop(); // Chiudi il dialog
     }
   }
 
