@@ -67,6 +67,10 @@ fn wire__crate__api__collage_generation__generate_collage_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_sink =
+                <StreamSink<String, flutter_rust_bridge::for_generated::SseCodec>>::sse_decode(
+                    &mut deserializer,
+                );
             let api_paths = <Vec<String>>::sse_decode(&mut deserializer);
             let api_num_frames = <i32>::sse_decode(&mut deserializer);
             let api_quality = <i32>::sse_decode(&mut deserializer);
@@ -75,6 +79,7 @@ fn wire__crate__api__collage_generation__generate_collage_impl(
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || async move {
                         let output_ok = crate::api::collage_generation::generate_collage(
+                            api_sink,
                             api_paths,
                             api_num_frames,
                             api_quality,
@@ -160,6 +165,14 @@ impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <String>::sse_decode(deserializer);
         return flutter_rust_bridge::for_generated::anyhow::anyhow!("{}", inner);
+    }
+}
+
+impl SseDecode for StreamSink<String, flutter_rust_bridge::for_generated::SseCodec> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
     }
 }
 
@@ -260,6 +273,13 @@ impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(format!("{:?}", self), serializer);
+    }
+}
+
+impl SseEncode for StreamSink<String, flutter_rust_bridge::for_generated::SseCodec> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
     }
 }
 

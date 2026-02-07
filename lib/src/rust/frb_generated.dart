@@ -78,7 +78,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
-  Future<void> crateApiCollageGenerationGenerateCollage({
+  Stream<String> crateApiCollageGenerationGenerateCollage({
     required List<String> paths,
     required int numFrames,
     required int quality,
@@ -98,40 +98,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
-  Future<void> crateApiCollageGenerationGenerateCollage({
+  Stream<String> crateApiCollageGenerationGenerateCollage({
     required List<String> paths,
     required int numFrames,
     required int quality,
   }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_list_String(paths, serializer);
-          sse_encode_i_32(numFrames, serializer);
-          sse_encode_i_32(quality, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 1,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_AnyhowException,
+    final sink = RustStreamSink<String>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_StreamSink_String_Sse(sink, serializer);
+            sse_encode_list_String(paths, serializer);
+            sse_encode_i_32(numFrames, serializer);
+            sse_encode_i_32(quality, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 1,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: sse_decode_AnyhowException,
+          ),
+          constMeta: kCrateApiCollageGenerationGenerateCollageConstMeta,
+          argValues: [sink, paths, numFrames, quality],
+          apiImpl: this,
         ),
-        constMeta: kCrateApiCollageGenerationGenerateCollageConstMeta,
-        argValues: [paths, numFrames, quality],
-        apiImpl: this,
       ),
     );
+    return sink.stream;
   }
 
   TaskConstMeta get kCrateApiCollageGenerationGenerateCollageConstMeta =>
       const TaskConstMeta(
         debugName: "generate_collage",
-        argNames: ["paths", "numFrames", "quality"],
+        argNames: ["sink", "paths", "numFrames", "quality"],
       );
 
   @override
@@ -191,6 +196,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RustStreamSink<String> dco_decode_StreamSink_String_Sse(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
@@ -231,6 +242,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_String(deserializer);
     return AnyhowException(inner);
+  }
+
+  @protected
+  RustStreamSink<String> sse_decode_StreamSink_String_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
   }
 
   @protected
@@ -289,6 +308,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.message, serializer);
+  }
+
+  @protected
+  void sse_encode_StreamSink_String_Sse(
+    RustStreamSink<String> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
   }
 
   @protected

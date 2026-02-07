@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `generate_single_collage`
 
-Future<void> generateCollage({
+Stream<String> generateCollage({
   required List<String> paths,
   required int numFrames,
   required int quality,

@@ -27,6 +27,7 @@ class _MiniVideoPlayerState extends State<MiniVideoPlayer> {
   @override
   void initState() {
     super.initState();
+    Future.delayed(Durations.medium4);
     player = Player();
     controller = VideoController(player);
 
