@@ -96,6 +96,7 @@ class _VideoReviewPageState extends State<VideoReviewPage>
   late int totalJobs;
   //init variables
   int framesNumber = 40;
+  int threadsUsed = (Platform.numberOfProcessors/2).round().toInt();
   List<MediaClass> foundTotalFiles = [];
   String selectedFolder = "Select a folder";
   bool _showPlayer = false;
@@ -274,7 +275,7 @@ class _VideoReviewPageState extends State<VideoReviewPage>
 
   Future<void> pickFolderAndLoadVideos() async {
     print(
-      "Current settings: multi-threaded, frames ${framesNumber}, quality ${qualitySetting}",
+      "Current settings: threads ${threadsUsed}, frames ${framesNumber}, quality ${qualitySetting}",
     );
     String? folderPath = await FilePicker.platform.getDirectoryPath();
     if (folderPath == null) return;
@@ -474,11 +475,14 @@ class _VideoReviewPageState extends State<VideoReviewPage>
 
     //Refreshes the ram monitor every second
 
+    final stopwatch = Stopwatch()..start();
+
     try {
       final collageStream = generateCollage(
         paths: jobs.map((p) => p.fileReference.path).toList(),
         numFrames: framesNumber,
         quality: qualitySetting,
+        threadsNum: threadsUsed
       );
 
       await for (final completedPath in collageStream) {
@@ -493,6 +497,8 @@ class _VideoReviewPageState extends State<VideoReviewPage>
     } catch (e) {
       print("Errore durante il batch Rust: $e");
     } finally {
+      print('Executed in: ${stopwatch.elapsed}');
+      stopwatch.stop();
       Navigator.of(context).pop(); // Chiudi il dialog
     }
   }
@@ -739,7 +745,7 @@ class _VideoReviewPageState extends State<VideoReviewPage>
 
   @override
   Widget build(BuildContext context) {
-    final double drawerWidth = 500;
+    final double drawerWidth = 600;
     final hasFiles = foundTotalFiles.isNotEmpty;
     final video =
         hasFiles && currentVideoIndex < foundTotalFiles.length
@@ -1185,7 +1191,50 @@ class _VideoReviewPageState extends State<VideoReviewPage>
                           });
                         },
                       ),
-                      SizedBox(height: 50),
+                      SizedBox(height: 30),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.developer_board, color: Colors.white),
+                          SizedBox(width: 10),
+                          Text(
+                            "Number of threads to use",
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        activeColor: Theme.of(context).primaryColor,
+                        year2023: false,
+                        label: threadsUsed.toString(),
+                        value: threadsUsed.toDouble(),
+                        min: 1,
+                        max: Platform.numberOfProcessors.toDouble(),
+                        divisions: Platform.numberOfProcessors-1,
+                        onChanged: (double value) {
+                          setState(() {
+                            threadsUsed = value.toInt();
+                            print(threadsUsed);
+                          });
+                        },
+                      ),
+                      if(threadsUsed == Platform.numberOfProcessors)
+                        Padding(
+                          padding: const EdgeInsetsGeometry.fromLTRB(20, 0, 20, 0),
+                          child: Row(
+                            children: [
+                              Icon(Icons.warning, color: Colors.yellow),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  style: TextStyle(color: Colors.yellow),
+                                  "You're using all the available threads, this can cause lag and general system instability, use it if you want the best performance at the cost of not using your CPU for anything else while VideoSwiper is processing.",
+                                ),
+                              )
+                            ],
+                          ),
+                        ),
+                      SizedBox(height: 10),
                       Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -1314,7 +1363,7 @@ class _VideoReviewPageState extends State<VideoReviewPage>
                             height: 20,
                           ), // Spazio tra titolo e SegmentedButton
                           SizedBox(
-                            width: 490,
+                            width: 550,
                             child: SegmentedButton<QualityLevel>(
                               segments: <ButtonSegment<QualityLevel>>[
                                 ButtonSegment<QualityLevel>(

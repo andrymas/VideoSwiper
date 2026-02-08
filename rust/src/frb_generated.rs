@@ -74,6 +74,7 @@ fn wire__crate__api__collage_generation__generate_collage_impl(
             let api_paths = <Vec<String>>::sse_decode(&mut deserializer);
             let api_num_frames = <i32>::sse_decode(&mut deserializer);
             let api_quality = <i32>::sse_decode(&mut deserializer);
+            let api_threads_num = <i32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -83,6 +84,7 @@ fn wire__crate__api__collage_generation__generate_collage_impl(
                             api_paths,
                             api_num_frames,
                             api_quality,
+                            api_threads_num,
                         )
                         .await?;
                         Ok(output_ok)

@@ -12,8 +12,10 @@ Stream<String> generateCollage({
   required List<String> paths,
   required int numFrames,
   required int quality,
+  required int threadsNum,
 }) => RustLib.instance.api.crateApiCollageGenerationGenerateCollage(
   paths: paths,
   numFrames: numFrames,
   quality: quality,
+  threadsNum: threadsNum,
 );

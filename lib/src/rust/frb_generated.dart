@@ -82,6 +82,7 @@ abstract class RustLibApi extends BaseApi {
     required List<String> paths,
     required int numFrames,
     required int quality,
+    required int threadsNum,
   });
 
   String crateApiSimpleGreet({required String name});
@@ -102,6 +103,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required List<String> paths,
     required int numFrames,
     required int quality,
+    required int threadsNum,
   }) {
     final sink = RustStreamSink<String>();
     unawaited(
@@ -113,6 +115,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             sse_encode_list_String(paths, serializer);
             sse_encode_i_32(numFrames, serializer);
             sse_encode_i_32(quality, serializer);
+            sse_encode_i_32(threadsNum, serializer);
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
@@ -125,7 +128,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeErrorData: sse_decode_AnyhowException,
           ),
           constMeta: kCrateApiCollageGenerationGenerateCollageConstMeta,
-          argValues: [sink, paths, numFrames, quality],
+          argValues: [sink, paths, numFrames, quality, threadsNum],
           apiImpl: this,
         ),
       ),
@@ -136,7 +139,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiCollageGenerationGenerateCollageConstMeta =>
       const TaskConstMeta(
         debugName: "generate_collage",
-        argNames: ["sink", "paths", "numFrames", "quality"],
+        argNames: ["sink", "paths", "numFrames", "quality", "threadsNum"],
       );
 
   @override

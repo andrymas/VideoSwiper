@@ -8,6 +8,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 anyhow = "1.0.100"
+fast_image_resize = "6.0.0"
 flutter_rust_bridge = "=2.11.1"
 image = "0.25.9"
 ndarray = "0.17.2"

@@ -1,148 +1,172 @@
 use anyhow::Result;
-use rayon::prelude::*;
 use crate::frb_generated::StreamSink;
+use std::time::{Instant, Duration};
+use std::path::Path;
+use std::fs::File;
+use video_rs::{Decoder, init};
+use image::{RgbImage, codecs::jpeg::JpegEncoder};
+use fast_image_resize as fr;
+use fast_image_resize::images::Image;
 
 pub async fn generate_collage(
     sink: StreamSink<String>, 
     paths: Vec<String>, 
     num_frames: i32, 
-    quality: i32
+    quality: i32,
+    threads_num: i32
 ) -> Result<()> {
-    use std::time::Instant;
+    print!("Generating collage for {} files, threads: {}, quality: {}, frames: {}", paths.len(), threads_num, quality, num_frames);
+
     let total_elaboration_time = Instant::now();
+    init().map_err(|e| anyhow::anyhow!("video-rs init error: {}", e))?;
 
-    // Creiamo il pool (come già facevi)
+    // Thread number taken from the flutter UI
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(4) 
-        .build()
-        .map_err(|e| anyhow::anyhow!("Errore pool: {}", e))?;
+        .num_threads(threads_num as usize) 
+        .build()?;
 
-    // --- LA MODIFICA È QUI ---
-    // Usiamo uno scope per assicurarci che i dati vengano inviati man mano
-    // Invece di .install (che è bloccante), usiamo un approccio che permette al sink di respirare
-    
     pool.scope(|s| {
         for path in paths {
             let sink_inner = sink.clone();
             s.spawn(move |_| {
-                match generate_single_collage(&path, num_frames, quality) {
-                    Ok(_) => {
-                        // Invia il path a Flutter IMMEDIATAMENTE dopo il singolo salvataggio
-                        let _ = sink_inner.add(path); 
-                    },
-                    Err(e) => {
-                        eprintln!("Errore sul file {}: {}", path, e);
-                    }
+                if let Err(e) = generate_single_collage(&path, num_frames, quality) {
+                    eprintln!("Error processing file {}: {}", path, e);
+                } else {
+                    // Notify Flutter side that this specific file is done
+                    let _ = sink_inner.add(path); 
                 }
             });
         }
     });
 
-    println!("✨ OPERAZIONE COMPLETATA IN: {:?}", total_elaboration_time.elapsed());
+    println!("Batch completed in: {:?}", total_elaboration_time.elapsed());
     Ok(())
 }
 
 fn generate_single_collage(path: &str, num_frames: i32, _quality: i32) -> Result<()> {
-    use std::time::Instant;
     let total_start = Instant::now();
-    use image::codecs::jpeg::JpegEncoder;
-    use std::fs::File;
-    use video_rs::{Decoder, init};
-    use std::path::Path;
-    use image::{RgbImage, GenericImage, imageops::FilterType};
-
-    // Quality matches 0-4
-    let (scale_factor_preset, jpeg_quality) = match _quality {
-        0 => (0.15, 45),
-        1 => (0.30, 60),
-        2 => (0.50, 75),
-        3 => (0.75, 85),
-        4 => (1.00, 92),
-        _ => (0.50, 75),
-    };
-
-    init().map_err(|e| anyhow::anyhow!("Errore init video-rs: {}", e))?;
+    let mut time_decoding = Duration::ZERO;
+    let mut time_resizing = Duration::ZERO;
+    
     let path_obj = Path::new(path);
     let file_stem = path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
 
     let mut decoder = Decoder::new(path_obj)?;
-    let duration_secs = decoder.duration()?.as_secs_f64();
-    let interval = duration_secs / (num_frames as f64);
+    let (orig_w, orig_h) = decoder.size();
+    let duration = decoder.duration()?.as_secs_f64();
+    let interval = duration / (num_frames as f64);
 
-    // Get the initial width and height
-    let (initial_w, initial_h) = decoder.size();
-    let mut real_w = initial_w as u32;
-    let mut real_h = initial_h as u32;
+    // Map quality levels to target resolution and jpeg compression
+    let target_long_side = match _quality {
+        0 => 320, 1 => 480, 2 => 640, 3 => 960, 4 => 1280,
+        _ => 640,
+    };
+    let jpeg_quality = match _quality {
+        0 => 50, 1 => 60, 2 => 70, 3 => 80, 4 => 90,
+        _ => 70,
+    };
 
-    let mut raw_frames: Vec<Vec<u8>> = Vec::new();
+    // Calculate aspect ratio maintained dimensions
+    let (thumb_w, thumb_h) = if orig_h > orig_w {
+        let scale = target_long_side as f32 / orig_h as f32;
+        ((orig_w as f32 * scale) as u32, target_long_side as u32)
+    } else {
+        let scale = target_long_side as f32 / orig_w as f32;
+        (target_long_side as u32, (orig_h as f32 * scale) as u32)
+    };
+
+    let mut extracted_images: Vec<RgbImage> = Vec::with_capacity(num_frames as usize);
+    // Reuse resizer instance for all frames in this video
+    let mut resizer = fr::Resizer::new();
 
     for i in 0..num_frames {
         let seek_ms = (i as f64 * interval * 1000.0) as i64;
+        let start_dec = Instant::now();
         let _ = decoder.seek(seek_ms);
 
-        // Decoding the frame
         if let Some(Ok(frame)) = decoder.decode_raw_iter().next() {
-            // Convert the frame to a Vec<u8>
-            let flat_data: Vec<u8> = frame.data(0).iter().cloned().collect();
+            let data = frame.data(0);
+            let stride = frame.stride(0);
+            time_decoding += start_dec.elapsed();
+
+            let start_res = Instant::now();
             
-            // SECURITY CHECK
-            // If the buffer length doesn't match the expected size, 
-            // it's probably a rotated frame
-            let expected_len = (real_w * real_h * 3) as usize;
+            let u_w = orig_w as usize;
+            let u_h = orig_h as usize;
             
-            if i == 0 && flat_data.len() != expected_len {
-                // If the first frame is rotated, swap the width and height
-                if flat_data.len() == (real_h * real_w * 3) as usize {
-                    std::mem::swap(&mut real_w, &mut real_h);
-                    println!("🔄 Rotation found via buffer len: {}x{}", real_w, real_h);
-                } else {
-                    // Else it's padding, so we need to calculate the real width
-                    // by dividing the buffer length by the height
-                    real_w = (flat_data.len() / (real_h as usize * 3)) as u32;
-                    println!("📏 Stride found! New buffer width: {}", real_w);
-                }
+            // Remove stride padding to get clean RGB data
+            let mut clean_data = Vec::with_capacity(u_w * u_h * 3);
+            for row in 0..u_h {
+                let start = row * stride;
+                let end = start + (u_w * 3);
+                clean_data.extend_from_slice(&data[start..end]);
+            }
+
+            // Fast image resizing logic
+            let src_image = Image::from_vec_u8(
+                orig_w as u32,
+                orig_h as u32,
+                clean_data,
+                fr::PixelType::U8x3,
+            ).map_err(|e| anyhow::anyhow!("Failed to create src_image: {:?}", e))?;
+
+            let mut dst_image = Image::new(
+                thumb_w,
+                thumb_h,
+                fr::PixelType::U8x3,
+            );
+
+            resizer.resize(&src_image, &mut dst_image, &fr::ResizeOptions::new().resize_alg(fr::ResizeAlg::Nearest))
+                .map_err(|e| anyhow::anyhow!("Resize failed: {:?}", e))?;
+
+            if let Some(img) = RgbImage::from_raw(thumb_w, thumb_h, dst_image.into_vec()) {
+                extracted_images.push(img);
             }
             
-            raw_frames.push(flat_data);
-        } 
+            time_resizing += start_res.elapsed();
+        }
     }
 
-    if raw_frames.is_empty() { return Err(anyhow::anyhow!("Zero frames extracted")); }
+    if extracted_images.is_empty() { return Err(anyhow::anyhow!("Zero frames extracted")); }
 
-    // Calculate the final width and height
-    let thumb_w = (real_w as f32 * scale_factor_preset).max(1.0) as u32;
-    let thumb_h = (real_h as f32 * scale_factor_preset).max(1.0) as u32;
-
-    // Parallel extraction
-    let extracted_images: Vec<RgbImage> = raw_frames
-        .into_par_iter()
-        .map(|data| {
-            let temp_img = RgbImage::from_raw(real_w, real_h, data)
-                .expect("Fatal error: the buffer doesn't match the expected size");
-            
-            // FilterType::Nearest is the default, fastest but lowest in quality
-            // Use Lanczos3 or Triangle for better quality but slower processing
-            image::imageops::resize(&temp_img, thumb_w, thumb_h, FilterType::Nearest)
-        })
-        .collect();
-
-    // Grid generation
+    // Assemble frames into a grid collage
+    let start_grid = Instant::now();
     let columns = 8;
-    let rows = (extracted_images.len() as f32 / columns as f32).ceil() as u32;
+    let rows = (extracted_images.len() as u32 + columns - 1) / columns;
     let mut collage = RgbImage::new(thumb_w * columns, thumb_h * rows);
-
-    for (i, img) in extracted_images.iter().enumerate() {
-        let x = (i as u32 % columns) * thumb_w;
-        let y = (i as u32 / columns) * thumb_h;
-        let _ = collage.copy_from(img, x, y);
-    }
     
-    // Saving the grid
+    let c_w = thumb_w * columns;
+    let collage_samples = collage.as_flat_samples_mut().samples;
+
+    for (i, img) in extracted_images.into_iter().enumerate() {
+        let x_off = (i as u32 % columns) * thumb_w;
+        let y_off = (i as u32 / columns) * thumb_h;
+        let img_raw = img.as_raw();
+        
+        for y in 0..thumb_h {
+            let src_start = (y * thumb_w * 3) as usize;
+            let src_row = &img_raw[src_start..src_start + (thumb_w * 3) as usize];
+            let dest_idx = (((y_off + y) * c_w + x_off) * 3) as usize;
+            // Direct memory copy for grid assembly
+            collage_samples[dest_idx..dest_idx + (thumb_w * 3) as usize].copy_from_slice(src_row);
+        }
+    }
+    let time_grid = start_grid.elapsed();
+
+    // Final export as JPEG
+    let start_save = Instant::now();
     let output_path = path_obj.parent().unwrap().join(format!("{}_collage.jpg", file_stem));
     let file = File::create(&output_path)?;
-    let mut encoder = JpegEncoder::new_with_quality(file, jpeg_quality);
+    let writer = std::io::BufWriter::with_capacity(256 * 1024, file);
+    
+    let mut encoder = JpegEncoder::new_with_quality(writer, jpeg_quality);
     encoder.encode_image(&collage)?;
+    let time_save = start_save.elapsed();
 
-    println!("✨ {} finished in: {:?}", file_stem, total_start.elapsed());
+    println!(
+        "File: {} | Decoding: {:?} | Resize: {:?} | Grid: {:?} | Save: {:?} | Total: {:?}",
+        file_stem, time_decoding, time_resizing, time_grid, time_save, total_start.elapsed()
+    );
+
     Ok(())
 }
