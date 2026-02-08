@@ -7,7 +7,12 @@ class MiniVideoPlayer extends StatefulWidget {
   final bool beginPaused;
   final bool beginMuted;
 
-  const MiniVideoPlayer({required this.videoPath, super.key, required this.beginPaused, required this.beginMuted});
+  const MiniVideoPlayer({
+    required this.videoPath,
+    super.key,
+    required this.beginPaused,
+    required this.beginMuted,
+  });
 
   @override
   State<MiniVideoPlayer> createState() => _MiniVideoPlayerState();
@@ -22,6 +27,7 @@ class _MiniVideoPlayerState extends State<MiniVideoPlayer> {
   @override
   void initState() {
     super.initState();
+    Future.delayed(Durations.medium4);
     player = Player();
     controller = VideoController(player);
 
@@ -44,11 +50,11 @@ class _MiniVideoPlayerState extends State<MiniVideoPlayer> {
         }
       }
     });
-    
-    if(!widget.beginPaused){
+
+    if (!widget.beginPaused) {
       player.pause();
     }
-    if(widget.beginMuted){
+    if (widget.beginMuted) {
       player.setVolume(0);
     }
   }

@@ -1,0 +1,19 @@
+[package]
+name = "rust_lib_videoswiper"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+anyhow = "1.0.100"
+fast_image_resize = "6.0.0"
+flutter_rust_bridge = "=2.11.1"
+image = "0.25.9"
+ndarray = "0.17.2"
+rayon = "1.11.0"
+video-rs = { version = "0.10.5", features = ["ndarray"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

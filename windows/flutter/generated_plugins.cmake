@@ -8,12 +8,12 @@ list(APPEND FLUTTER_PLUGIN_LIST
   media_kit_video
   screen_retriever_windows
   url_launcher_windows
-  volume_controller
   window_manager
   window_size
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  rust_lib_videoswiper
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

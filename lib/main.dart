@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
@@ -12,7 +13,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:system_info/system_info.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:videoswiper/script.dart';
+import 'package:videoswiper/customTypes.dart';
+import 'package:videoswiper/src/rust/api/collage_generation.dart';
+import 'package:videoswiper/src/rust/frb_generated.dart';
 import 'package:videoswiper/video_collector.dart';
 import 'package:videoswiper/video_player.dart';
 import 'package:window_manager/window_manager.dart';
@@ -24,6 +27,7 @@ void main(List<String> args) async {
   try {
     await windowManager.ensureInitialized();
     await windowManager.setPreventClose(true);
+    await RustLib.init();
     setWindowTitle('VideoSwiper');
     setWindowMinSize(const Size(516, 600));
 
@@ -48,40 +52,14 @@ void main(List<String> args) async {
   }
 }
 
-
-
 //drag scroll class
 class SmoothScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
     PointerDeviceKind.touch,
     PointerDeviceKind.mouse,
-    PointerDeviceKind.trackpad
+    PointerDeviceKind.trackpad,
   };
-}
-
-class MediaClass {
-  File fileReference;
-  bool isVideo;
-
-  MediaClass({required this.fileReference, required this.isVideo});
-  
-  get path => fileReference!.path;
-}
-
-enum QualityLevel {
-  lowest,
-  low,
-  medium,
-  high,
-  ultra,
-}
-
-extension QualityLevelExtension on QualityLevel {
-  String toDisplayString() {
-    return toString().split('.').last[0].toUpperCase() +
-      toString().split('.').last.substring(1);
-  }
 }
 
 //app creation class
@@ -93,10 +71,7 @@ class VideoSwiperApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'VideoSwiper',
-      theme: ThemeData(
-        useMaterial3: true,
-        primaryColor: Colors.blueGrey,
-      ),
+      theme: ThemeData(useMaterial3: true, primaryColor: Colors.blueGrey),
       //home: const VideoReviewPage(),
       home: const VideoReviewPage(),
     );
@@ -110,17 +85,18 @@ class VideoReviewPage extends StatefulWidget {
   State<VideoReviewPage> createState() => _VideoReviewPageState();
 }
 
-class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderStateMixin, WindowListener {
+class _VideoReviewPageState extends State<VideoReviewPage>
+    with TickerProviderStateMixin, WindowListener {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final TransformationController _transformationController = TransformationController();
+  final TransformationController _transformationController =
+      TransformationController();
   late Directory trashLocation;
   int generatedThumbnails = 0;
   int currentVideoIndex = 0;
   late int totalJobs;
   //init variables
   int framesNumber = 40;
-  int maxJobs = 4;
-  File? _scriptFile;
+  int threadsUsed = (Platform.numberOfProcessors/2).round().toInt();
   List<MediaClass> foundTotalFiles = [];
   String selectedFolder = "Select a folder";
   bool _showPlayer = false;
@@ -138,12 +114,29 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   int qualitySetting = 2;
 
   final videoExtensions = [
-    '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm',
-    '.flv', '.wmv', '.3gp', '.3g2', '.mpeg', '.mpg', '.ts'
+    '.mp4',
+    '.avi',
+    '.mov',
+    '.mkv',
+    '.m4v',
+    '.webm',
+    '.flv',
+    '.wmv',
+    '.3gp',
+    '.3g2',
+    '.mpeg',
+    '.mpg',
+    '.ts',
   ];
 
   final photoExtensions = [
-    '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.wbmp'
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.webp',
+    '.gif',
+    '.bmp',
+    '.wbmp',
   ];
 
   Set<QualityLevel> _selectedQuality = {QualityLevel.medium};
@@ -158,7 +151,6 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     _transformationController.value = Matrix4.identity() * _zoom;
 
     windowManager.addListener(this);
-    preparePythonScript();
   }
 
   //removing the ordinary dispose method
@@ -179,16 +171,16 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
             backgroundColor: const Color.fromARGB(255, 22, 26, 26),
             title: const Text(
               "Are you sure you want to close VideoSwiper?",
-                style: TextStyle(
-                  color: Colors.white,
-                  decoration: TextDecoration.none
-                ),
+              style: TextStyle(
+                color: Colors.white,
+                decoration: TextDecoration.none,
               ),
+            ),
             content: const Text(
               "The app will finish the collages it's currently processing.",
               style: TextStyle(
                 color: Colors.white,
-                decoration: TextDecoration.none
+                decoration: TextDecoration.none,
               ),
             ),
             actions: [
@@ -197,7 +189,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                   'No',
                   style: TextStyle(
                     color: Colors.white,
-                    decoration: TextDecoration.none
+                    decoration: TextDecoration.none,
                   ),
                 ),
                 onPressed: () => Navigator.of(context).pop(false),
@@ -207,7 +199,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                   'Yes',
                   style: TextStyle(
                     color: Colors.white,
-                    decoration: TextDecoration.none
+                    decoration: TextDecoration.none,
                   ),
                 ),
                 onPressed: () => Navigator.of(context).pop(true),
@@ -218,7 +210,6 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
       );
 
       if (shouldClose == true) {
-        await stopCollageGeneration();
         await windowManager.destroy();
       }
     } else {
@@ -228,11 +219,11 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
 
   void _changeImageSize(int action) {
     setState(() {
-      if(action == 1){
+      if (action == 1) {
         _zoom = (_zoom + _zoomStep).clamp(_minZoom, _maxZoom);
-      }else if(action == 2){
+      } else if (action == 2) {
         _zoom = (_zoom - _zoomStep).clamp(_minZoom, _maxZoom);
-      }else if(action == 3){
+      } else if (action == 3) {
         _zoom = 1;
       }
       _transformationController.value = Matrix4.identity().scaled(_zoom);
@@ -241,7 +232,9 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
 
   void _applyQualitySetting(QualityLevel quality) {
     qualitySetting = QualityLevel.values.indexOf(quality);
-    print('New qualitySetting index: $qualitySetting (${quality.toDisplayString()})');
+    print(
+      'New qualitySetting index: $qualitySetting (${quality.toDisplayString()})',
+    );
     switch (quality) {
       case QualityLevel.lowest:
         qualitySetting = 0;
@@ -272,15 +265,6 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     });
   }
 
-  Future<void> preparePythonScript() async {
-    final tempDir = await Directory.systemTemp.createTemp('video_swiper_script');
-    final scriptPath = p.join(tempDir.path, 'collage_generator.py');
-    final script = File(scriptPath);
-    //pythonScript is in script.dart
-    await script.writeAsString(pythonScript);
-    _scriptFile = script;
-  }
-
   bool getIsGeneratingCollage() {
     if (_collageProcess != null) {
       return true;
@@ -289,40 +273,45 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     }
   }
 
-  Future<void> stopCollageGeneration() async {
-    if (_collageProcess != null) {
-      print("🛑 Terminazione processo in corso...");
-      _collageProcess!.kill(ProcessSignal.sigterm);
-      await _collageProcess!.exitCode;
-      print("✅ Processo terminato.");
-      _collageProcess = null;
-    } else {
-      print("ℹ️ Nessun processo attivo.");
-    }
-  }
-
   Future<void> pickFolderAndLoadVideos() async {
-    print("Current settings: async ${maxJobs}, frames ${framesNumber}, quality ${qualitySetting}");
+    print(
+      "Current settings: threads ${threadsUsed}, frames ${framesNumber}, quality ${qualitySetting}",
+    );
     String? folderPath = await FilePicker.platform.getDirectoryPath();
     if (folderPath == null) return;
 
     //File list
-    trashLocation = await Directory('$folderPath/trash').create(recursive: false);
+    trashLocation = await Directory(
+      '$folderPath/trash',
+    ).create(recursive: false);
 
-    final allFiles = Directory(folderPath).listSync().whereType<File>().toList();
+    final allFiles =
+        Directory(folderPath).listSync().whereType<File>().toList();
 
-    final foundVideoFiles = allFiles
-        .where((f) => videoExtensions.contains(p.extension(f.path).toLowerCase()))
-        .map((f) => MediaClass(fileReference: f, isVideo: true))
-        .toList()
-      ..sort((a, b) => a.fileReference!.path.compareTo(b.fileReference!.path));
+    final foundVideoFiles =
+        allFiles
+            .where(
+              (f) =>
+                  videoExtensions.contains(p.extension(f.path).toLowerCase()),
+            )
+            .map((f) => MediaClass(fileReference: f, isVideo: true))
+            .toList()
+          ..sort(
+            (a, b) => a.fileReference!.path.compareTo(b.fileReference!.path),
+          );
 
-    final foundPhotoFiles = allFiles
-        .where((f) => photoExtensions.contains(p.extension(f.path).toLowerCase()))
-        .where((f) => !p.basename(f.path).contains('_collage'))
-        .map((f) => MediaClass(fileReference: f, isVideo: false))
-        .toList()
-      ..sort((a, b) => a.fileReference!.path.compareTo(b.fileReference!.path));
+    final foundPhotoFiles =
+        allFiles
+            .where(
+              (f) =>
+                  photoExtensions.contains(p.extension(f.path).toLowerCase()),
+            )
+            .where((f) => !p.basename(f.path).contains('_collage'))
+            .map((f) => MediaClass(fileReference: f, isVideo: false))
+            .toList()
+          ..sort(
+            (a, b) => a.fileReference!.path.compareTo(b.fileReference!.path),
+          );
 
     final totalFiles = [...foundVideoFiles, ...foundPhotoFiles];
     totalFiles.sort((a, b) => a.path.compareTo(b.path));
@@ -337,7 +326,6 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
 
     //Local variable for dialog
     late StateSetter setStateDialog;
-    Timer? ramTimer;
     final jobs = Queue<MediaClass>();
     //checks if files already have a collage and skips them
     for (var file in foundTotalFiles) {
@@ -355,187 +343,172 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => Stack(
-        children: [
-          BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0),
-            child: Container(
-              color: Colors.black.withOpacity(0), // necessario per far funzionare il blur
-            ),
-          ),
-          Center(
-            child: StatefulBuilder(
-              builder: (context, dialogSetState) {
-                setStateDialog = dialogSetState;
-          
-                //RAM (in GB)
-                final totalGB = SysInfo.getTotalPhysicalMemory() / 1073741824;
-                final freeGB = SysInfo.getFreePhysicalMemory() / 1073741824;
-                final usedGB = totalGB - freeGB;
-                final ramRatio = usedGB / totalGB;
-          
-                Color getRamColor(double ratio) {
-                  if (ratio < 0.5) return Colors.green;
-                  if (ratio < 0.8) return Colors.orange;
-                  return Colors.red;
-                }
-          
-          
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(),
-                      Text(
-                        selectedFolder,
-                        style: TextStyle(
-                          color: Colors.white,
-                          decoration: TextDecoration.none
-                        ),
+      builder:
+          (_) => Stack(
+            children: [
+              BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0),
+                child: Container(
+                  color: Colors.black.withOpacity(
+                    0,
+                  ), // necessario per far funzionare il blur
+                ),
+              ),
+              Center(
+                child: StatefulBuilder(
+                  builder: (context, dialogSetState) {
+                    setStateDialog = dialogSetState;
+
+                    //RAM (in GB)
+                    final totalGB =
+                        SysInfo.getTotalPhysicalMemory() / 1073741824;
+                    final freeGB = SysInfo.getFreePhysicalMemory() / 1073741824;
+                    final usedGB = totalGB - freeGB;
+                    final ramRatio = usedGB / totalGB;
+
+                    Color getRamColor(double ratio) {
+                      if (ratio < 0.5) return Colors.green;
+                      if (ratio < 0.8) return Colors.orange;
+                      return Colors.red;
+                    }
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 20,
                       ),
-                      const SizedBox(height: 20),
-                      Text(
-                        "Elaborated $generatedThumbnails /$totalJobs videos",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          decoration: TextDecoration.none
-                        ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: 200,
-                        child: LinearProgressIndicator(
-                          value: totalJobs > 0 ? generatedThumbnails / totalJobs : 0.0,
-                          backgroundColor: Colors.grey[800],
-                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        "RAM Usage",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          decoration: TextDecoration.none,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: 800,
-                        child: Row(
-                          children: [
-                            Text(
-                              "${usedGB.toStringAsFixed(1)} GB",
-                              style: const TextStyle(color: Colors.white, decoration: TextDecoration.none),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(),
+                          Text(
+                            selectedFolder,
+                            style: TextStyle(
+                              color: Colors.white,
+                              decoration: TextDecoration.none,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: LinearProgressIndicator(
-                                  value: ramRatio,
-                                  minHeight: 12,
-                                  backgroundColor: Colors.grey[700],
-                                  valueColor: AlwaysStoppedAnimation<Color>(getRamColor(ramRatio)),
-                                ),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            "Elaborated $generatedThumbnails /$totalJobs videos",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: 200,
+                            child: LinearProgressIndicator(
+                              value:
+                                  totalJobs > 0
+                                      ? generatedThumbnails / totalJobs
+                                      : 0.0,
+                              backgroundColor: Colors.grey[800],
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                Colors.blue,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Text(
-                              "${totalGB.toStringAsFixed(1)} GB",
-                              style: const TextStyle(color: Colors.white, decoration: TextDecoration.none),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            "RAM Usage",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.none,
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: 800,
+                            child: Row(
+                              children: [
+                                Text(
+                                  "${usedGB.toStringAsFixed(1)} GB",
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    decoration: TextDecoration.none,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: LinearProgressIndicator(
+                                      value: ramRatio,
+                                      minHeight: 12,
+                                      backgroundColor: Colors.grey[700],
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        getRamColor(ramRatio),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  "${totalGB.toStringAsFixed(1)} GB",
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    decoration: TextDecoration.none,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  )
-                );
-              },
-            ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-        ]
-      ),
     );
 
     //Refreshes the ram monitor every second
-    ramTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      setStateDialog((){}); //Recreates the dialog to update the ram monitor
-    });
 
-    //Thread worker
-    Future<void> worker() async {
-      while (jobs.isNotEmpty) {
-        final file = jobs.removeFirst();
-        await _generateCollage(file);
+    final stopwatch = Stopwatch()..start();
 
-        generatedThumbnails++;
-        // Update the dialog every new thumbnail
-        setStateDialog((){});
+    try {
+      final collageStream = generateCollage(
+        paths: jobs.map((p) => p.fileReference.path).toList(),
+        numFrames: framesNumber,
+        quality: qualitySetting,
+        threadsNum: threadsUsed
+      );
+
+      await for (final completedPath in collageStream) {
+        setState(() {
+          generatedThumbnails++; // Ora la barra si muove a ogni file!
+          print("Collage finished and saved by Rust: $completedPath");
+        });
+        setStateDialog(() {
+          print("Updating dialog UI");
+        });
       }
-    }
-
-
-    //Creates N paralel workers
-    final workers = List.generate(maxJobs, (_) => worker());
-    await Future.wait(workers);
-
-    //Stops the timer
-    ramTimer.cancel();
-    //Closes the dialog
-    Navigator.of(context).pop();
-
-    //Gets the first generated video
-    setState(() {
-      currentVideoIndex = 0;
-    });
-  }
-
-  Future<void> _generateCollage(MediaClass file) async {
-    if (_scriptFile == null) {
-      print("❗ Script not ready");
-      return;
-    }
-
-    print("Collage doesn't exist for ${file.path}, generating.");
-
-    if(file.isVideo){
-      try {
-        _collageProcess = await Process.start(
-          'python3',
-          [_scriptFile!.path, file.path, framesNumber.toString(), qualitySetting.toString()],
-          runInShell: true,
-        );
-
-        final exitCode = await _collageProcess!.exitCode;
-
-        if (exitCode != 0) {
-          print("❌ Collage error ${file.path}");
-        } else {
-          print("✅ Collage generated: ${file.path}");
-        }
-      } catch (e) {
-        print("Error running script: $e");
-      } finally {
-        _collageProcess = null;
-      }
+    } catch (e) {
+      print("Errore durante il batch Rust: $e");
+    } finally {
+      print('Executed in: ${stopwatch.elapsed}');
+      stopwatch.stop();
+      Navigator.of(context).pop(); // Chiudi il dialog
     }
   }
 
   //simple function to get the collage path of a video
   String _getCollagePath(MediaClass videoFile) {
-    if(videoFile.isVideo){
+    if (videoFile.isVideo) {
       final base = p.basenameWithoutExtension(videoFile.path);
       final outputDir = p.dirname(videoFile.path);
-      return p.join(outputDir, '${base}_collage.png');
+      return p.join(outputDir, '${base}_collage.jpg');
     }
     return videoFile.path;
   }
@@ -566,11 +539,11 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
   }
 
   void deleteCurrentVideo() {
-      // Ottieni il riferimento all'oggetto MediaClass
+    // Ottieni il riferimento all'oggetto MediaClass
     final media = foundTotalFiles[currentVideoIndex];
-    
+
     // Ottieni il riferimento al File effettivo
-    final fileToDelete = media.fileReference!; 
+    final fileToDelete = media.fileReference!;
     final trashPath = p.join(trashLocation.path, p.basename(fileToDelete.path));
 
     try {
@@ -581,9 +554,12 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
       if (media.isVideo) {
         final collagePath = _getCollagePath(media);
         final collageFile = File(collagePath);
-        
+
         if (collageFile.existsSync()) {
-          final collageTrashPath = p.join(trashLocation.path, p.basename(collageFile.path));
+          final collageTrashPath = p.join(
+            trashLocation.path,
+            p.basename(collageFile.path),
+          );
           collageFile.renameSync(collageTrashPath);
           print('File e collage spostati in: ${trashLocation.path}');
         }
@@ -619,17 +595,14 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
         mainAxisSize: MainAxisSize.min,
         children: const [
           SizedBox(height: 8),
-          Text(
-            'Collage not found',
-            style: TextStyle(color: Colors.white),
-          ),
+          Text('Collage not found', style: TextStyle(color: Colors.white)),
         ],
       );
     }
 
     return Column(
       children: [
-        if(_allowZoom)
+        if (_allowZoom)
           InteractiveViewer(
             transformationController: _transformationController,
             panEnabled: true,
@@ -640,10 +613,11 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
           )
         else
           Image.file(file, fit: BoxFit.contain),
-        SizedBox(height: 10,),
+        SizedBox(height: 10),
         if (foundTotalFiles.isNotEmpty && _showPlayer && isVideo == true)
           SizedBox(
             height: 400,
+            width: 400,
             child: MiniVideoPlayer(
               key: ValueKey(foundTotalFiles[currentVideoIndex].path),
               videoPath: foundTotalFiles[currentVideoIndex].path,
@@ -661,8 +635,13 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
     return path.substring(lastSlash + 1);
   }
 
-  Future<String?> fetchLatestVersionFromGitHub(String owner, String repo) async {
-    final url = Uri.parse('https://api.github.com/repos/$owner/$repo/releases/latest');
+  Future<String?> fetchLatestVersionFromGitHub(
+    String owner,
+    String repo,
+  ) async {
+    final url = Uri.parse(
+      'https://api.github.com/repos/$owner/$repo/releases/latest',
+    );
     final response = await http.get(url);
 
     if (response.statusCode == 200) {
@@ -676,22 +655,19 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
 
   Future<void> showVersionDialog(BuildContext context) async {
     final info = await PackageInfo.fromPlatform();
-    final latestVersion = await fetchLatestVersionFromGitHub("andrymas", "VideoSwiper");
-    final latestText = latestVersion != null
-        ? latestVersion
-        : 'Failed to fetch';
+    final latestVersion = await fetchLatestVersionFromGitHub(
+      "andrymas",
+      "VideoSwiper",
+    );
+    final latestText =
+        latestVersion != null ? latestVersion : 'Failed to fetch';
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: const Color.fromARGB(255, 12, 17, 17),
-          title: const Text(
-            'Info',
-            style: TextStyle(
-              color: Colors.white
-            ),
-          ),
+          title: const Text('Info', style: TextStyle(color: Colors.white)),
           content: ConstrainedBox(
             constraints: BoxConstraints(
               maxHeight: 150, // scegli l'altezza massima che vuoi
@@ -702,52 +678,36 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
               children: [
                 Text(
                   "Latest version: $latestText",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 20),
                 ),
-                SizedBox(height: 10,),
+                SizedBox(height: 10),
                 Text(
                   "Software version: v${info.version}",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 20),
                 ),
-                SizedBox(height: 20,),
-                if("v${info.version}" == latestText)
+                SizedBox(height: 20),
+                if ("v${info.version}" == latestText)
                   Row(
                     children: [
-                      Icon(
-                        Icons.check,
-                        color: Colors.greenAccent,
-                      ),
-                      SizedBox(width: 5,),
+                      Icon(Icons.check, color: Colors.greenAccent),
+                      SizedBox(width: 5),
                       Text(
                         "You have the latest version!",
-                        style: TextStyle(
-                          color: Colors.white,
-                        ),
-                      )
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ],
                   )
-                  else
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.error,
-                          color: Colors.redAccent,
-                        ),
-                        SizedBox(width: 5,),
-                        Text(
-                          "You don't have the latest version!",
-                          style: TextStyle(
-                            color: Colors.white,
-                          ),
-                        )
-                      ],
-                    )
+                else
+                  Row(
+                    children: [
+                      Icon(Icons.error, color: Colors.redAccent),
+                      SizedBox(width: 5),
+                      Text(
+                        "You don't have the latest version!",
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -756,15 +716,12 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
               style: TextButton.styleFrom(
                 textStyle: Theme.of(context).textTheme.labelLarge,
               ),
-              child: const Text(
-                'Close',
-                style: TextStyle(color: Colors.white),
-                ),
+              child: const Text('Close', style: TextStyle(color: Colors.white)),
               onPressed: () {
                 Navigator.of(context).pop();
               },
             ),
-            if("v${info.version}" != latestText)
+            if ("v${info.version}" != latestText)
               TextButton(
                 style: TextButton.styleFrom(
                   textStyle: Theme.of(context).textTheme.labelLarge,
@@ -772,9 +729,11 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                 child: const Text(
                   'Upgrade',
                   style: TextStyle(color: Colors.white),
-                  ),
+                ),
                 onPressed: () {
-                  var url = Uri.parse("https://github.com/andrymas/VideoSwiper/releases");
+                  var url = Uri.parse(
+                    "https://github.com/andrymas/VideoSwiper/releases",
+                  );
                   launchUrl(url);
                 },
               ),
@@ -786,12 +745,14 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    final double drawerWidth = 500;
+    final double drawerWidth = 600;
     final hasFiles = foundTotalFiles.isNotEmpty;
-    final video = hasFiles && currentVideoIndex < foundTotalFiles.length
-        ? foundTotalFiles[currentVideoIndex]
-        : null;
-    final collagePath = hasFiles && video != null ? _getCollagePath(video) : null;
+    final video =
+        hasFiles && currentVideoIndex < foundTotalFiles.length
+            ? foundTotalFiles[currentVideoIndex]
+            : null;
+    final collagePath =
+        hasFiles && video != null ? _getCollagePath(video) : null;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -820,11 +781,15 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                     borderRadius: BorderRadius.circular(4),
                     child: Card(
                       elevation: 0,
-                      color: _isHovering
-                          ? const Color.fromARGB(255, 44, 53, 59)
-                          : const Color.fromARGB(255, 34, 37, 37),
+                      color:
+                          _isHovering
+                              ? const Color.fromARGB(255, 44, 53, 59)
+                              : const Color.fromARGB(255, 34, 37, 37),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10.0,
+                          vertical: 6,
+                        ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -856,17 +821,23 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                   children: [
                     Text(
                       '${currentVideoIndex}/${foundTotalFiles.length}',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     SizedBox(
-                        width: 100,
-                        child: LinearProgressIndicator(
-                          value: foundTotalFiles.length > 0 ? currentVideoIndex / foundTotalFiles.length : 0.0,
-                          color: Colors.blueAccent,
-                          backgroundColor: Colors.blueGrey,
-                        ),
+                      width: 100,
+                      child: LinearProgressIndicator(
+                        value:
+                            foundTotalFiles.length > 0
+                                ? currentVideoIndex / foundTotalFiles.length
+                                : 0.0,
+                        color: Colors.blueAccent,
+                        backgroundColor: Colors.blueGrey,
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -879,9 +850,9 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                   children: [
                     IconButton(
                       onPressed: () async {
-                        final window = await DesktopMultiWindow.createWindow(jsonEncode({
-                          'type': 'Sub window',
-                        }));
+                        final window = await DesktopMultiWindow.createWindow(
+                          jsonEncode({'type': 'Sub window'}),
+                        );
                         window
                           ..setTitle('MediaGatherer')
                           ..show();
@@ -912,7 +883,7 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
         ),
       ),
       body: Stack(
-        children:[
+        children: [
           if (video == null && currentVideoIndex == foundTotalFiles.length)
             Container(
               width: double.infinity,
@@ -929,7 +900,10 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                   const SizedBox(height: 20),
                   ElevatedButton.icon(
                     icon: const Icon(Icons.refresh, color: Colors.black),
-                    label: const Text("Go back to the start", style: TextStyle(color: Colors.black)),
+                    label: const Text(
+                      "Go back to the start",
+                      style: TextStyle(color: Colors.black),
+                    ),
                     onPressed: () {
                       setState(() {
                         currentVideoIndex = 0;
@@ -939,77 +913,99 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                 ],
               ),
             )
-            else
-              Stack(
-                children: [
-                  Positioned.fill(
-                    child: ScrollConfiguration(
-                      behavior: SmoothScrollBehavior(),
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 110), // Padding per lasciare spazio alla barra sotto
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (video != null) ...[
-                                Text(
-                                  p.basename(video.path),
-                                  style: const TextStyle(fontSize: 16, color: Colors.white),
+          else
+            Stack(
+              children: [
+                Positioned.fill(
+                  child: ScrollConfiguration(
+                    behavior: SmoothScrollBehavior(),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(
+                        16,
+                        16,
+                        16,
+                        110,
+                      ), // Padding per lasciare spazio alla barra sotto
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (video != null) ...[
+                              Text(
+                                p.basename(video.path),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.white,
                                 ),
-                                Text(
-                                  '${(video.fileReference.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB',
-                                  style: const TextStyle(fontSize: 16, color: Colors.white),
+                              ),
+                              Text(
+                                '${(video.fileReference.lengthSync() / (1024 * 1024)).toStringAsFixed(2)} MB',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.white,
                                 ),
-                                const SizedBox(height: 10),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  child: collagePath != null
-                                      ? _buildCollageView(collagePath, foundTotalFiles[currentVideoIndex].isVideo)
-                                      : const Text(
+                              ),
+                              const SizedBox(height: 10),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
+                                child:
+                                    collagePath != null
+                                        ? _buildCollageView(
+                                          collagePath,
+                                          foundTotalFiles[currentVideoIndex]
+                                              .isVideo,
+                                        )
+                                        : const Text(
                                           "No collage to show",
                                           style: TextStyle(color: Colors.white),
                                         ),
-                                ),
-                              ],
+                              ),
                             ],
-                          ),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                  Align(
-                    alignment: Alignment.bottomCenter,
-                    child: Container(
-                      width: 280,
-                      height: 100,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 1),
-                      margin: EdgeInsets.only(bottom: 12),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            //Semi-transparent bg
-                            Container(color: Colors.black.withOpacity(0.3)),
-                            //Blur filter
-                            BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 2, sigmaY: 2),
-                              child: Container(color: Colors.transparent),
-                            ),
-                            //Content
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    IconButton(
-                                      color: Colors.white,
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                      iconSize: 32,
-                                      onPressed: hasFiles
-                                          ? () {
+                ),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    width: 280,
+                    height: 100,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 1,
+                    ),
+                    margin: EdgeInsets.only(bottom: 12),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          //Semi-transparent bg
+                          Container(color: Colors.black.withOpacity(0.3)),
+                          //Blur filter
+                          BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 2, sigmaY: 2),
+                            child: Container(color: Colors.transparent),
+                          ),
+                          //Content
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    color: Colors.white,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    iconSize: 32,
+                                    onPressed:
+                                        hasFiles
+                                            ? () {
                                               setState(() {
                                                 if (currentVideoIndex > 0) {
                                                   currentVideoIndex--;
@@ -1018,365 +1014,436 @@ class _VideoReviewPageState extends State<VideoReviewPage> with TickerProviderSt
                                                 }
                                               });
                                             }
-                                          : null,
-                                      icon: const Icon(Icons.arrow_back),
-                                    ),
-                                    if(_allowZoom == true)
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          const SizedBox(width: 5),
-                                          IconButton(
-                                            color: Colors.white,
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(),
-                                            iconSize: 32,
-                                            onPressed: hasFiles
-                                                ? () {_changeImageSize(1);}
-                                                : null,
-                                            icon: const Icon(Icons.zoom_in),
-                                          ),
-                                          const SizedBox(width: 5),
-                                          IconButton(
-                                            color: Colors.white,
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(),
-                                            iconSize: 32,
-                                            onPressed: hasFiles
-                                                ? () {_changeImageSize(2);}
-                                                : null,
-                                            icon: const Icon(Icons.zoom_out),
-                                          ),
-                                          const SizedBox(width: 5),
-                                        ],
-                                      )
-                                    else
-                                      SizedBox(width: 30,),
+                                            : null,
+                                    icon: const Icon(Icons.arrow_back),
+                                  ),
+                                  if (_allowZoom == true)
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const SizedBox(width: 5),
+                                        IconButton(
+                                          color: Colors.white,
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          iconSize: 32,
+                                          onPressed:
+                                              hasFiles
+                                                  ? () {
+                                                    _changeImageSize(1);
+                                                  }
+                                                  : null,
+                                          icon: const Icon(Icons.zoom_in),
+                                        ),
+                                        const SizedBox(width: 5),
+                                        IconButton(
+                                          color: Colors.white,
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          iconSize: 32,
+                                          onPressed:
+                                              hasFiles
+                                                  ? () {
+                                                    _changeImageSize(2);
+                                                  }
+                                                  : null,
+                                          icon: const Icon(Icons.zoom_out),
+                                        ),
+                                        const SizedBox(width: 5),
+                                      ],
+                                    )
+                                  else
+                                    SizedBox(width: 30),
 
-                                    IconButton(
-                                      color: Colors.white,
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                      iconSize: 32,
-                                      onPressed: hasFiles
-                                          ? () {
+                                  IconButton(
+                                    color: Colors.white,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    iconSize: 32,
+                                    onPressed:
+                                        hasFiles
+                                            ? () {
                                               setState(() {
-                                                if (currentVideoIndex < foundTotalFiles.length) {
+                                                if (currentVideoIndex <
+                                                    foundTotalFiles.length) {
                                                   currentVideoIndex++;
                                                 } else {
                                                   currentVideoIndex = 0;
                                                 }
                                               });
                                             }
-                                          : null,
-                                      icon: const Icon(Icons.arrow_forward),
+                                            : null,
+                                    icon: const Icon(Icons.arrow_forward),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  ElevatedButton.icon(
+                                    icon: const Icon(
+                                      Icons.delete,
+                                      color: Colors.black,
                                     ),
-                                  ],
+                                    label: const Text(
+                                      "Delete",
+                                      style: TextStyle(color: Colors.black),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                    ),
+                                    onPressed:
+                                        hasFiles ? deleteCurrentVideo : null,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  ElevatedButton.icon(
+                                    icon: const Icon(
+                                      Icons.check,
+                                      color: Colors.black,
+                                    ),
+                                    label: const Text(
+                                      "Keep",
+                                      style: TextStyle(color: Colors.black),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                    ),
+                                    onPressed:
+                                        hasFiles
+                                            ? () {
+                                              setState(() {
+                                                if (currentVideoIndex <
+                                                    foundTotalFiles.length) {
+                                                  currentVideoIndex++;
+                                                } else {
+                                                  currentVideoIndex = 0;
+                                                }
+                                              });
+                                            }
+                                            : null,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          if (_isMenuOpen)
+            GestureDetector(
+              onTap: toggleMenu,
+              child: Container(
+                color: Colors.black54,
+                width: double.infinity,
+                height: double.infinity,
+              ),
+            ),
+          // Custom drawer from right
+          AnimatedPositioned(
+            duration: Duration(milliseconds: 300),
+            top: 0,
+            right: _isMenuOpen ? 0 : -drawerWidth,
+            width: drawerWidth,
+            bottom: 0,
+            child: Material(
+              elevation: 16,
+              color: Color.fromARGB(255, 22, 26, 26),
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.photo_library, color: Colors.white),
+                          SizedBox(width: 10),
+                          Text(
+                            "Number of frames per collage",
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        activeColor: Theme.of(context).primaryColor,
+                        year2023: false,
+                        label: framesNumber.toString(),
+                        value: framesNumber.toDouble(),
+                        min: 1,
+                        max: 100,
+                        divisions: 100,
+                        onChanged: (double value) {
+                          setState(() {
+                            framesNumber = value.toInt();
+                            print(framesNumber);
+                          });
+                        },
+                      ),
+                      SizedBox(height: 30),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.developer_board, color: Colors.white),
+                          SizedBox(width: 10),
+                          Text(
+                            "Number of threads to use",
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        activeColor: Theme.of(context).primaryColor,
+                        year2023: false,
+                        label: threadsUsed.toString(),
+                        value: threadsUsed.toDouble(),
+                        min: 1,
+                        max: Platform.numberOfProcessors.toDouble(),
+                        divisions: Platform.numberOfProcessors-1,
+                        onChanged: (double value) {
+                          setState(() {
+                            threadsUsed = value.toInt();
+                            print(threadsUsed);
+                          });
+                        },
+                      ),
+                      if(threadsUsed == Platform.numberOfProcessors)
+                        Padding(
+                          padding: const EdgeInsetsGeometry.fromLTRB(20, 0, 20, 0),
+                          child: Row(
+                            children: [
+                              Icon(Icons.warning, color: Colors.yellow),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  style: TextStyle(color: Colors.yellow),
+                                  "You're using all the available threads, this can cause lag and general system instability, use it if you want the best performance at the cost of not using your CPU for anything else while VideoSwiper is processing.",
                                 ),
-                                const SizedBox(height: 10),
+                              )
+                            ],
+                          ),
+                        ),
+                      SizedBox(height: 10),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Checkbox(
+                                activeColor: Theme.of(context).primaryColor,
+                                hoverColor: const Color.fromARGB(
+                                  255,
+                                  44,
+                                  53,
+                                  59,
+                                ),
+                                value: _showPlayer,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _showPlayer = value!;
+                                  });
+                                },
+                              ),
+                              Text(
+                                "Show video player",
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+
+                          if (_showPlayer)
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    ElevatedButton.icon(
-                                      icon: const Icon(Icons.delete, color: Colors.black),
-                                      label: const Text(
-                                        "Delete",
-                                        style: TextStyle(color: Colors.black),
+                                    Checkbox(
+                                      activeColor:
+                                          Theme.of(context).primaryColor,
+                                      hoverColor: const Color.fromARGB(
+                                        255,
+                                        44,
+                                        53,
+                                        59,
                                       ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.red,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(5),
-                                        ),
-                                      ),
-                                      onPressed: hasFiles ? deleteCurrentVideo : null,
+                                      value: _beginPaused,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _beginPaused = value!;
+                                        });
+                                      },
                                     ),
-                                    const SizedBox(width: 5),
-                                    ElevatedButton.icon(
-                                      icon: const Icon(Icons.check, color: Colors.black),
-                                      label: const Text(
-                                        "Keep",
-                                        style: TextStyle(color: Colors.black),
+                                    Text(
+                                      "Autoplay",
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Checkbox(
+                                      activeColor:
+                                          Theme.of(context).primaryColor,
+                                      hoverColor: const Color.fromARGB(
+                                        255,
+                                        44,
+                                        53,
+                                        59,
                                       ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.green,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(5),
-                                        ),
-                                      ),
-                                      onPressed: hasFiles
-                                          ? () {
-                                              setState(() {
-                                                if (currentVideoIndex < foundTotalFiles.length) {
-                                                  currentVideoIndex++;
-                                                } else {
-                                                  currentVideoIndex = 0;
-                                                }
-                                              });
-                                            }
-                                          : null,
+                                      value: _beginMuted,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _beginMuted = value!;
+                                        });
+                                      },
+                                    ),
+                                    Text(
+                                      "Start muted",
+                                      style: TextStyle(color: Colors.white),
                                     ),
                                   ],
                                 ),
                               ],
                             ),
-                          ],
-                        ),
+                        ],
                       ),
-                    ),
-                  )
+                      SizedBox(height: 30),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Checkbox(
+                            activeColor: Theme.of(context).primaryColor,
+                            hoverColor: const Color.fromARGB(255, 44, 53, 59),
+                            value: _allowZoom,
+                            onChanged: (value) {
+                              setState(() {
+                                _allowZoom = value!;
+                                _changeImageSize(3);
+                              });
+                            },
+                          ),
+                          Text(
+                            "Enable image zoom",
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 50),
+                      Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.tune,
+                                color: Colors.white,
+                              ), // Appropriate icon for settings
+                              SizedBox(width: 10),
+                              Text(
+                                "Quality Settings",
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                          SizedBox(
+                            height: 20,
+                          ), // Spazio tra titolo e SegmentedButton
+                          SizedBox(
+                            width: 550,
+                            child: SegmentedButton<QualityLevel>(
+                              segments: <ButtonSegment<QualityLevel>>[
+                                ButtonSegment<QualityLevel>(
+                                  value: QualityLevel.lowest,
+                                  label: Text(
+                                    QualityLevel.lowest.toDisplayString(),
+                                  ),
+                                  icon: Icon(Icons.speed),
+                                ),
+                                ButtonSegment<QualityLevel>(
+                                  value: QualityLevel.low,
+                                  label: Text(
+                                    QualityLevel.low.toDisplayString(),
+                                  ),
+                                  icon: Icon(Icons.flash_on),
+                                ),
+                                ButtonSegment<QualityLevel>(
+                                  value: QualityLevel.medium,
+                                  label: Text(
+                                    QualityLevel.medium.toDisplayString(),
+                                  ),
+                                  icon: Icon(Icons.balance),
+                                ),
+                                ButtonSegment<QualityLevel>(
+                                  value: QualityLevel.high,
+                                  label: Text(
+                                    QualityLevel.high.toDisplayString(),
+                                  ),
+                                  icon: Icon(Icons.photo_filter),
+                                ),
+                                ButtonSegment<QualityLevel>(
+                                  value: QualityLevel.ultra,
+                                  label: Text(
+                                    QualityLevel.ultra.toDisplayString(),
+                                  ),
+                                  icon: Icon(Icons.auto_awesome),
+                                ),
+                              ],
+                              selected: _selectedQuality,
+                              onSelectionChanged: (
+                                Set<QualityLevel> newSelection,
+                              ) {
+                                if (newSelection.isNotEmpty) {
+                                  setState(() {
+                                    _selectedQuality = newSelection;
+                                    _applyQualitySetting(
+                                      _selectedQuality.first,
+                                    ); // Update and apply
+                                  });
+                                }
+                              },
+                              style: SegmentedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ), // Riduci padding,
+                                foregroundColor: Theme.of(context).primaryColor,
+                                selectedBackgroundColor:
+                                    Theme.of(context).primaryColor,
+                                selectedForegroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(5),
+                                  side: BorderSide(
+                                    color:
+                                        Theme.of(context).colorScheme.outline,
+                                    width: 1,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ],
               ),
-            if (_isMenuOpen)
-              GestureDetector(
-                onTap: toggleMenu,
-                child: Container(
-                  color: Colors.black54,
-                  width: double.infinity,
-                  height: double.infinity,
-                ),
-              ),
-            // Custom drawer from right
-            AnimatedPositioned(
-              duration: Duration(milliseconds: 300),
-              top: 0,
-              right: _isMenuOpen ? 0 : -drawerWidth,
-              width: drawerWidth,
-              bottom: 0,
-              child: Material(
-                elevation: 16,
-                color: Color.fromARGB(255, 22, 26, 26),
-                child: ListView(
-                  padding: EdgeInsets.zero,
-                  children: [
-                    Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.developer_board, color: Colors.white),
-                            SizedBox(width: 10),
-                            Text(
-                              "Number of async processes",
-                              style: TextStyle(
-                                color: Colors.white
-                              ),
-                            ),
-                          ],
-                        ),
-                        Slider(
-                          activeColor: Theme.of(context).primaryColor,
-                          year2023: false,
-                          label: maxJobs.toString(),
-                          value: maxJobs.toDouble(),
-                          min: 1,
-                          max: Platform.numberOfProcessors.toDouble(),
-                          divisions: Platform.numberOfProcessors-1,
-                          onChanged: (double value) {
-                            setState(() {
-                              maxJobs = value.toInt();
-                              print(maxJobs);
-                            });
-                          },
-                        ),
-                        SizedBox(height: 50,),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.photo_library, color: Colors.white,),
-                            SizedBox(width: 10),
-                            Text(
-                              "Number of frames per collage",
-                              style: TextStyle(
-                                color: Colors.white
-                              ),
-                            ),
-                          ],
-                        ),
-                        Slider(
-                          activeColor: Theme.of(context).primaryColor,
-                          year2023: false,
-                          label: framesNumber.toString(),
-                          value: framesNumber.toDouble(),
-                          min: 1,
-                          max: 100,
-                          divisions: 100,
-                          onChanged: (double value) {
-                            setState(() {
-                              framesNumber = value.toInt();
-                              print(framesNumber);
-                            });
-                          },
-                        ),
-                        SizedBox(height: 50,),
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Checkbox(
-                                  activeColor: Theme.of(context).primaryColor,
-                                  hoverColor: const Color.fromARGB(255, 44, 53, 59),
-                                  value: _showPlayer,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _showPlayer = value!;
-                                    });
-                                  },
-                                ),
-                                Text(
-                                  "Show video player",
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              ],
-                            ),
-
-                            if(_showPlayer)
-                              Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Checkbox(
-                                        activeColor: Theme.of(context).primaryColor,
-                                        hoverColor: const Color.fromARGB(255, 44, 53, 59),
-                                        value: _beginPaused,
-                                        onChanged: (value) {
-                                          setState(() {
-                                            _beginPaused = value!;
-                                          });
-                                        },
-                                      ),
-                                      Text(
-                                        "Autoplay",
-                                        style: TextStyle(color: Colors.white),
-                                      ),
-                                    ],
-                                  ),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Checkbox(
-                                        activeColor: Theme.of(context).primaryColor,
-                                        hoverColor: const Color.fromARGB(255, 44, 53, 59),
-                                        value: _beginMuted,
-                                        onChanged: (value) {
-                                          setState(() {
-                                            _beginMuted = value!;
-                                          });
-                                        },
-                                      ),
-                                      Text(
-                                        "Start muted",
-                                        style: TextStyle(color: Colors.white),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              )
-                          ],
-                        ),
-                        SizedBox(height: 30),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Checkbox(
-                              activeColor: Theme.of(context).primaryColor,
-                              hoverColor: const Color.fromARGB(255, 44, 53, 59),
-                              value: _allowZoom,
-                              onChanged: (value) {
-                                setState(() {
-                                  _allowZoom = value!;
-                                  _changeImageSize(3);
-                                });
-                              },
-                            ),
-                            Text(
-                              "Enable image zoom",
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 50),
-                        Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.tune, color: Colors.white), // Appropriate icon for settings
-                                SizedBox(width: 10),
-                                Text(
-                                  "Quality Settings",
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 20), // Spazio tra titolo e SegmentedButton
-                            SizedBox(
-                              width: 490,
-                              child: SegmentedButton<QualityLevel>(
-                                segments: <ButtonSegment<QualityLevel>>[
-                                  ButtonSegment<QualityLevel>(
-                                    value: QualityLevel.lowest,
-                                    label: Text(QualityLevel.lowest.toDisplayString()),
-                                    icon: Icon(Icons.speed)
-                                  ),
-                                  ButtonSegment<QualityLevel>(
-                                    value: QualityLevel.low,
-                                    label: Text(QualityLevel.low.toDisplayString()),
-                                    icon: Icon(Icons.flash_on)
-                                  ),
-                                  ButtonSegment<QualityLevel>(
-                                    value: QualityLevel.medium,
-                                    label: Text(QualityLevel.medium.toDisplayString()),
-                                    icon: Icon(Icons.balance)
-                                  ),
-                                  ButtonSegment<QualityLevel>(
-                                    value: QualityLevel.high,
-                                    label: Text(QualityLevel.high.toDisplayString()),
-                                    icon: Icon(Icons.photo_filter)
-                                  ),
-                                  ButtonSegment<QualityLevel>(
-                                    value: QualityLevel.ultra,
-                                    label: Text(QualityLevel.ultra.toDisplayString()),
-                                    icon: Icon(Icons.auto_awesome)
-                                  ),
-                                ],
-                                selected: _selectedQuality,
-                                onSelectionChanged: (Set<QualityLevel> newSelection) {
-                                  if (newSelection.isNotEmpty) {
-                                    setState(() {
-                                      _selectedQuality = newSelection;
-                                      _applyQualitySetting(_selectedQuality.first); // Update and apply
-                                    });
-                                  }
-                                },
-                                style: SegmentedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), // Riduci padding,
-                                  foregroundColor: Theme.of(context).primaryColor,
-                                  selectedBackgroundColor: Theme.of(context).primaryColor,
-                                  selectedForegroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(5),
-                                    side: BorderSide(
-                                      color: Theme.of(context).colorScheme.outline,
-                                      width: 1,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
             ),
-        ]
+          ),
+        ],
       ),
     );
   }
