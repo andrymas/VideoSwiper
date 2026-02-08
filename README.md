@@ -61,6 +61,8 @@ You can download the latest Windows build here:
   ```bash
   flutter clean
   flutter pub get
+  cd rust && cargo build
+  cd ..
   flutter build windows
   ```
 
